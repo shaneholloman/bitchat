@@ -84,6 +84,10 @@ struct ContentView: View {
             ZStack {
                 // Base layer - Main public chat (always visible)
                 mainChatView
+                    .onAppear { viewModel.currentColorScheme = colorScheme }
+                    .onChange(of: colorScheme) { newValue in
+                        viewModel.currentColorScheme = newValue
+                    }
                 
                 // Private chat slide-over
                 if viewModel.selectedPrivateChatPeer != nil {

@@ -117,6 +117,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         static let quickCashuPresence: NSRegularExpression = {
             try! NSRegularExpression(pattern: "\\bcashu[AB][A-Za-z0-9._-]{40,}\\b", options: [])
         }()
+        static let simplifyHTTPURL: NSRegularExpression = {
+            try! NSRegularExpression(pattern: "https?://[^\\s?#]+(?:[?#][^\\s]*)?", options: [.caseInsensitive])
+        }()
     }
 
     // MARK: - Spam resilience: token buckets
@@ -168,18 +171,54 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     }
 
     private func normalizedContentKey(_ content: String) -> String {
-        // Lowercase, trim, collapse whitespace, and bound length
+        // Lowercase, simplify URLs (strip query/fragment), collapse whitespace, bound length
         let lowered = content.lowercased()
-        let trimmed = lowered.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ns = lowered as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        var simplified = ""
+        var last = 0
+        for m in Regexes.simplifyHTTPURL.matches(in: lowered, options: [], range: range) {
+            if m.range.location > last {
+                simplified += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            }
+            let url = ns.substring(with: m.range)
+            if let q = url.firstIndex(where: { $0 == "?" || $0 == "#" }) {
+                simplified += String(url[..<q])
+            } else {
+                simplified += url
+            }
+            last = m.range.location + m.range.length
+        }
+        if last < ns.length { simplified += ns.substring(with: NSRange(location: last, length: ns.length - last)) }
+        let trimmed = simplified.trimmingCharacters(in: .whitespacesAndNewlines)
         let collapsed = trimmed.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         let prefix = String(collapsed.prefix(256))
-        // Fast djb2 hash from existing helper
+        // Fast djb2 hash
         let h = djb2(prefix)
         return String(format: "h:%016llx", h)
+    }
+
+    // Persistent recent content map (LRU) to speed near-duplicate checks
+    private var contentLRUMap: [String: Date] = [:]
+    private var contentLRUOrder: [String] = []
+    private let contentLRUCap = 2000
+    private func recordContentKey(_ key: String, timestamp: Date) {
+        if contentLRUMap[key] == nil { contentLRUOrder.append(key) }
+        contentLRUMap[key] = timestamp
+        if contentLRUOrder.count > contentLRUCap {
+            let overflow = contentLRUOrder.count - contentLRUCap
+            for _ in 0..<overflow {
+                if let victim = contentLRUOrder.first {
+                    contentLRUOrder.removeFirst()
+                    contentLRUMap.removeValue(forKey: victim)
+                }
+            }
+        }
     }
     // MARK: - Published Properties
     
     @Published var messages: [BitchatMessage] = []
+    @Published var currentColorScheme: ColorScheme = .light
     private let maxMessages = 1337 // Maximum messages before oldest are removed
     @Published var isConnected = false
     private var hasNotifiedNetworkAvailable = false
@@ -377,7 +416,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     // Buffer incoming public messages and flush in small batches to reduce UI invalidations
     private var publicBuffer: [BitchatMessage] = []
     private var publicBufferTimer: Timer? = nil
-    private let publicFlushInterval: TimeInterval = 0.08 // ~12.5 fps batching
+    private let basePublicFlushInterval: TimeInterval = 0.08 // ~12.5 fps batching
+    private var dynamicPublicFlushInterval: TimeInterval = 0.08
+    private var recentBatchSizes: [Int] = []
     @Published private(set) var isBatchingPublic: Bool = false
     private let lateInsertThreshold: TimeInterval = 15.0
     
@@ -1187,6 +1228,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             
             // Add to main messages immediately for user feedback
             messages.append(message)
+            // Update content LRU for near-dup detection
+            let ckey = normalizedContentKey(message.content)
+            recordContentKey(ckey, timestamp: message.timestamp)
             // Persist to channel-specific timelines
             #if os(iOS)
             switch activeChannel {
@@ -1196,10 +1240,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             case .location(let ch):
                 var arr = geoTimelines[ch.geohash] ?? []
                 arr.append(message)
-                if arr.count > geoTimelineCap {
-                    let remove = arr.count - geoTimelineCap
-                    arr.removeFirst(remove)
-                }
+                if arr.count > geoTimelineCap { arr = Array(arr.suffix(geoTimelineCap)) }
                 geoTimelines[ch.geohash] = arr
             }
             #else
@@ -2988,13 +3029,20 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             let lightningSchemeRegex = Regexes.lightningScheme
             let detector = Regexes.linkDetector
             
-            let hashtagMatches = hashtagRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
-            let mentionMatches = mentionRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
-            let urlMatches = detector?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
-            let cashuMatches = cashuRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
-            let lightningMatches = lightningSchemeRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
-            let bolt11Matches = bolt11Regex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
-            let lnurlMatches = lnurlRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
+            let nsLen = content.count
+            let hasMentionsHint = content.contains("@")
+            let hasHashtagsHint = content.contains("#")
+            let hasURLHint = content.contains("://") || content.contains("www.") || content.contains("http")
+            let hasLightningHint = content.lowercased().contains("ln") || content.lowercased().contains("lightning:")
+            let hasCashuHint = content.lowercased().contains("cashu")
+
+            let hashtagMatches = hasHashtagsHint ? hashtagRegex.matches(in: content, options: [], range: NSRange(location: 0, length: nsLen)) : []
+            let mentionMatches = hasMentionsHint ? mentionRegex.matches(in: content, options: [], range: NSRange(location: 0, length: nsLen)) : []
+            let urlMatches = hasURLHint ? (detector?.matches(in: content, options: [], range: NSRange(location: 0, length: nsLen)) ?? []) : []
+            let cashuMatches = hasCashuHint ? cashuRegex.matches(in: content, options: [], range: NSRange(location: 0, length: nsLen)) : []
+            let lightningMatches = hasLightningHint ? lightningSchemeRegex.matches(in: content, options: [], range: NSRange(location: 0, length: nsLen)) : []
+            let bolt11Matches = hasLightningHint ? bolt11Regex.matches(in: content, options: [], range: NSRange(location: 0, length: nsLen)) : []
+            let lnurlMatches = hasLightningHint ? lnurlRegex.matches(in: content, options: [], range: NSRange(location: 0, length: nsLen)) : []
             
             // Combine and sort matches, excluding hashtags/URLs overlapping mentions
             let mentionRanges = mentionMatches.map { $0.range(at: 0) }
@@ -3424,8 +3472,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     
     private func trimMessagesIfNeeded() {
         if messages.count > maxMessages {
-            let removeCount = messages.count - maxMessages
-            messages.removeFirst(removeCount)
+            messages = Array(messages.suffix(maxMessages))
         }
     }
 
@@ -3494,8 +3541,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
 
     private func trimMeshTimelineIfNeeded() {
         if meshTimeline.count > meshTimelineCap {
-            let removeCount = meshTimeline.count - meshTimelineCap
-            meshTimeline.removeFirst(removeCount)
+            meshTimeline = Array(meshTimeline.suffix(meshTimelineCap))
         }
     }
 
@@ -5030,8 +5076,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         privateChats = chats
         trimPrivateChatMessagesIfNeeded(for: peerID)
         
-        // Trigger UI update
-        objectWillChange.send()
+        // UI updates via @Published reassignment above
         
         // Handle fingerprint-based chat updates
         if let chatFingerprint = selectedPrivateChatFingerprint,
@@ -5118,6 +5163,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             if !(senderAllowed && contentAllowed) { return }
         }
 
+        // Size cap: drop extremely large public messages early
+        if finalMessage.sender != "system" && finalMessage.content.count > 16000 { return }
+
         // Persist mesh messages to mesh timeline always
         if !isGeo && finalMessage.sender != "system" {
             meshTimeline.append(finalMessage)
@@ -5130,10 +5178,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             if let gh = currentGeohash {
                 var arr = geoTimelines[gh] ?? []
                 arr.append(finalMessage)
-                if arr.count > geoTimelineCap {
-                    let remove = arr.count - geoTimelineCap
-                    arr.removeFirst(remove)
-                }
+                if arr.count > geoTimelineCap { arr = Array(arr.suffix(geoTimelineCap)) }
                 geoTimelines[gh] = arr
             }
         }
@@ -5186,19 +5231,23 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     }
 
     // MARK: - Public message batching helpers
+    @MainActor
     private func enqueuePublic(_ message: BitchatMessage) {
         publicBuffer.append(message)
         schedulePublicFlush()
     }
 
+    @MainActor
     private func schedulePublicFlush() {
         if publicBufferTimer != nil { return }
-        publicBufferTimer = Timer.scheduledTimer(withTimeInterval: publicFlushInterval, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            self.flushPublicBuffer()
-        }
+        publicBufferTimer = Timer.scheduledTimer(timeInterval: dynamicPublicFlushInterval,
+                                                 target: self,
+                                                 selector: #selector(onPublicBufferTimerFired(_:)),
+                                                 userInfo: nil,
+                                                 repeats: false)
     }
 
+    @MainActor
     private func flushPublicBuffer() {
         publicBufferTimer?.invalidate()
         publicBufferTimer = nil
@@ -5206,19 +5255,12 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
 
         // Dedup against existing by id and near-duplicate messages by content (within ~1s), across senders
         var seenIDs = Set(messages.map { $0.id })
-        let recent = Array(messages.suffix(200))
-        var recentContentLatest: [String: Date] = [:]
-        for e in recent {
-            let key = normalizedContentKey(e.content)
-            let prev = recentContentLatest[key]
-            if prev == nil || e.timestamp > prev! { recentContentLatest[key] = e.timestamp }
-        }
         var added: [BitchatMessage] = []
         var batchContentLatest: [String: Date] = [:]
         for m in publicBuffer {
             if seenIDs.contains(m.id) { continue }
             let ckey = normalizedContentKey(m.content)
-            if let ts = recentContentLatest[ckey], abs(ts.timeIntervalSince(m.timestamp)) < 1.0 { continue }
+            if let ts = contentLRUMap[ckey], abs(ts.timeIntervalSince(m.timestamp)) < 1.0 { continue }
             if let ts = batchContentLatest[ckey], abs(ts.timeIntervalSince(m.timestamp)) < 1.0 { continue }
             seenIDs.insert(m.id)
             added.append(m)
@@ -5240,16 +5282,33 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             } else {
                 messages.append(m)
             }
+            // Record content key for LRU
+            let ckey = normalizedContentKey(m.content)
+            recordContentKey(ckey, timestamp: m.timestamp)
         }
         trimMessagesIfNeeded()
-        // Prewarm formatting for new messages (light scheme)
+        // Update batch size stats and adjust interval
+        recentBatchSizes.append(added.count)
+        if recentBatchSizes.count > 10 { recentBatchSizes.removeFirst(recentBatchSizes.count - 10) }
+        let avg = recentBatchSizes.isEmpty ? 0.0 : Double(recentBatchSizes.reduce(0, +)) / Double(recentBatchSizes.count)
+        dynamicPublicFlushInterval = avg > 100.0 ? 0.12 : basePublicFlushInterval
+        // Prewarm formatting cache for current UI color scheme only
         for m in added {
-            _ = self.formatMessageAsText(m, colorScheme: .light)
+            _ = self.formatMessageAsText(m, colorScheme: currentColorScheme)
         }
-        // Reset batching flag on next runloop to allow brief UI transaction window
-        DispatchQueue.main.async { [weak self] in self?.isBatchingPublic = false }
+        // Reset batching flag (already on main actor)
+        isBatchingPublic = false
+        // If new items arrived during this flush, coalesce by flushing once more next tick
+        if !publicBuffer.isEmpty { schedulePublicFlush() }
     }
 
+    // Timer selector to avoid @Sendable closure capture issues under Swift 6
+    @MainActor @objc
+    private func onPublicBufferTimerFired(_ timer: Timer) {
+        flushPublicBuffer()
+    }
+
+    @MainActor
     private func insertionIndexByTimestamp(_ ts: Date) -> Int {
         var low = 0
         var high = messages.count
