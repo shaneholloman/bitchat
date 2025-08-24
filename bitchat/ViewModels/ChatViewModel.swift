@@ -91,6 +91,91 @@ import UIKit
 /// Acts as the primary coordinator between UI components and backend services,
 /// implementing the BitchatDelegate protocol to handle network events.
 class ChatViewModel: ObservableObject, BitchatDelegate {
+    // Precompiled regexes and detectors reused across formatting
+    private enum Regexes {
+        static let hashtag: NSRegularExpression = {
+            try! NSRegularExpression(pattern: "#([a-zA-Z0-9_]+)", options: [])
+        }()
+        static let mention: NSRegularExpression = {
+            try! NSRegularExpression(pattern: "@([\\p{L}0-9_]+(?:#[a-fA-F0-9]{4})?)", options: [])
+        }()
+        static let cashu: NSRegularExpression = {
+            try! NSRegularExpression(pattern: "\\bcashu[AB][A-Za-z0-9._-]{40,}\\b", options: [])
+        }()
+        static let bolt11: NSRegularExpression = {
+            try! NSRegularExpression(pattern: "(?i)\\bln(bc|tb|bcrt)[0-9][a-z0-9]{50,}\\b", options: [])
+        }()
+        static let lnurl: NSRegularExpression = {
+            try! NSRegularExpression(pattern: "(?i)\\blnurl1[a-z0-9]{20,}\\b", options: [])
+        }()
+        static let lightningScheme: NSRegularExpression = {
+            try! NSRegularExpression(pattern: "(?i)\\blightning:[^\\s]+", options: [])
+        }()
+        static let linkDetector: NSDataDetector? = {
+            try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        }()
+        static let quickCashuPresence: NSRegularExpression = {
+            try! NSRegularExpression(pattern: "\\bcashu[AB][A-Za-z0-9._-]{40,}\\b", options: [])
+        }()
+    }
+
+    // MARK: - Spam resilience: token buckets
+    private struct TokenBucket {
+        var capacity: Double
+        var tokens: Double
+        var refillPerSec: Double
+        var lastRefill: Date
+
+        mutating func allow(cost: Double = 1.0, now: Date = Date()) -> Bool {
+            let dt = now.timeIntervalSince(lastRefill)
+            if dt > 0 {
+                tokens = min(capacity, tokens + dt * refillPerSec)
+                lastRefill = now
+            }
+            if tokens >= cost {
+                tokens -= cost
+                return true
+            }
+            return false
+        }
+    }
+
+    private var rateBucketsBySender: [String: TokenBucket] = [:]
+    private var rateBucketsByContent: [String: TokenBucket] = [:]
+    private let senderBucketCapacity: Double = 5
+    private let senderBucketRefill: Double = 1 // tokens per second
+    private let contentBucketCapacity: Double = 3
+    private let contentBucketRefill: Double = 0.5 // tokens per second
+
+    private func normalizedSenderKey(for message: BitchatMessage) -> String {
+        if let spid = message.senderPeerID {
+            if spid.hasPrefix("nostr:") || spid.hasPrefix("nostr_") {
+                let bare: String = {
+                    if spid.hasPrefix("nostr:") { return String(spid.dropFirst(6)) }
+                    if spid.hasPrefix("nostr_") { return String(spid.dropFirst(6)) }
+                    return spid
+                }()
+                let full = (nostrKeyMapping[spid] ?? bare).lowercased()
+                return "nostr:" + full
+            } else if spid.count == 16, let full = getNoiseKeyForShortID(spid)?.lowercased() {
+                return "noise:" + full
+            } else {
+                return "mesh:" + spid.lowercased()
+            }
+        }
+        return "name:" + message.sender.lowercased()
+    }
+
+    private func normalizedContentKey(_ content: String) -> String {
+        // Lowercase, trim, collapse whitespace, and bound length
+        let lowered = content.lowercased()
+        let trimmed = lowered.trimmingCharacters(in: .whitespacesAndNewlines)
+        let collapsed = trimmed.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        let prefix = String(collapsed.prefix(256))
+        // Fast djb2 hash from existing helper
+        let h = djb2(prefix)
+        return String(format: "h:%016llx", h)
+    }
     // MARK: - Published Properties
     
     @Published var messages: [BitchatMessage] = []
@@ -286,6 +371,12 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     
     // Delivery tracking
     private var cancellables = Set<AnyCancellable>()
+
+    // MARK: - Public message batching (UI perf)
+    // Buffer incoming public messages and flush in small batches to reduce UI invalidations
+    private var publicBuffer: [BitchatMessage] = []
+    private var publicBufferTimer: Timer? = nil
+    private let publicFlushInterval: TimeInterval = 0.08 // ~12.5 fps batching
     
     // Track sent read receipts to avoid duplicates (persisted across launches)
     // Note: Persistence happens automatically in didSet, no lifecycle observers needed
@@ -410,10 +501,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] peers in
                     guard let self = self else { return }
-                    // Update peers directly
+                    // Update peers directly; @Published drives UI updates
                     self.allPeers = peers
-                    // Force UI update
-                    self.objectWillChange.send()
                     // Update peer index for O(1) lookups
                     // Deduplicate peers by ID to prevent crash from duplicate keys
                     var uniquePeers: [String: BitchatPeer] = [:]
@@ -2873,11 +2962,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             // For extremely long content, render as plain text to avoid heavy regex/layout work,
             // unless the content includes Cashu tokens we want to chip-render below
             let containsCashuEarly: Bool = {
-                let pattern = "\\bcashu[AB][A-Za-z0-9._-]{40,}\\b"
-                if let rx = try? NSRegularExpression(pattern: pattern, options: []) {
-                    return rx.numberOfMatches(in: content, options: [], range: NSRange(location: 0, length: content.count)) > 0
-                }
-                return false
+                let rx = Regexes.quickCashuPresence
+                return rx.numberOfMatches(in: content, options: [], range: NSRange(location: 0, length: content.count)) > 0
             }()
             if (content.count > 4000 || content.hasVeryLongToken(threshold: 1024)) && !containsCashuEarly {
                 var plainStyle = AttributeContainer()
@@ -2887,33 +2973,22 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                     : .system(size: 14, design: .monospaced)
                 result.append(AttributedString(content).mergingAttributes(plainStyle))
             } else {
-            let hashtagPattern = "#([a-zA-Z0-9_]+)"
-            // Allow optional '#abcd' suffix in mentions
-            let mentionPattern = "@([\\p{L}0-9_]+(?:#[a-fA-F0-9]{4})?)"
-            // Cashu token detector: cashuA/cashuB + long base64url; allow '.' and shorter variants
-            let cashuPattern = "\\bcashu[AB][A-Za-z0-9._-]{40,}\\b"
-            // Lightning invoices and links
-            let bolt11Pattern = "(?i)\\bln(bc|tb|bcrt)[0-9][a-z0-9]{50,}\\b"
-            let lnurlPattern = "(?i)\\blnurl1[a-z0-9]{20,}\\b"
-            let lightningSchemePattern = "(?i)\\blightning:[^\\s]+"
+            // Reuse compiled regexes and detector
+            let hashtagRegex = Regexes.hashtag
+            let mentionRegex = Regexes.mention
+            let cashuRegex = Regexes.cashu
+            let bolt11Regex = Regexes.bolt11
+            let lnurlRegex = Regexes.lnurl
+            let lightningSchemeRegex = Regexes.lightningScheme
+            let detector = Regexes.linkDetector
             
-            let hashtagRegex = try? NSRegularExpression(pattern: hashtagPattern, options: [])
-            let mentionRegex = try? NSRegularExpression(pattern: mentionPattern, options: [])
-            let cashuRegex = try? NSRegularExpression(pattern: cashuPattern, options: [])
-            let bolt11Regex = try? NSRegularExpression(pattern: bolt11Pattern, options: [])
-            let lnurlRegex = try? NSRegularExpression(pattern: lnurlPattern, options: [])
-            let lightningSchemeRegex = try? NSRegularExpression(pattern: lightningSchemePattern, options: [])
-            
-            // Use NSDataDetector for URL detection
-            let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-            
-            let hashtagMatches = hashtagRegex?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
-            let mentionMatches = mentionRegex?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
+            let hashtagMatches = hashtagRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
+            let mentionMatches = mentionRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
             let urlMatches = detector?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
-            let cashuMatches = cashuRegex?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
-            let lightningMatches = lightningSchemeRegex?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
-            let bolt11Matches = bolt11Regex?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
-            let lnurlMatches = lnurlRegex?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
+            let cashuMatches = cashuRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
+            let lightningMatches = lightningSchemeRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
+            let bolt11Matches = bolt11Regex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
+            let lnurlMatches = lnurlRegex.matches(in: content, options: [], range: NSRange(location: 0, length: content.count))
             
             // Combine and sort matches, excluding hashtags/URLs overlapping mentions
             let mentionRanges = mentionMatches.map { $0.range(at: 0) }
@@ -3445,9 +3520,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private func addMessage(_ message: BitchatMessage) {
         // Check for duplicates
         guard !messages.contains(where: { $0.id == message.id }) else { return }
-        
         messages.append(message)
-        messages.sort { $0.timestamp < $1.timestamp }
         trimMessagesIfNeeded()
     }
     
@@ -5025,6 +5098,20 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         // Classify origin: geochat if senderPeerID starts with 'nostr:', else mesh (or system)
         let isGeo = finalMessage.senderPeerID?.hasPrefix("nostr:") == true
 
+        // Apply per-sender and per-content rate limits (drop if exceeded)
+        if finalMessage.sender != "system" {
+            let senderKey = normalizedSenderKey(for: finalMessage)
+            let contentKey = normalizedContentKey(finalMessage.content)
+            let now = Date()
+            var sBucket = rateBucketsBySender[senderKey] ?? TokenBucket(capacity: senderBucketCapacity, tokens: senderBucketCapacity, refillPerSec: senderBucketRefill, lastRefill: now)
+            let senderAllowed = sBucket.allow(now: now)
+            rateBucketsBySender[senderKey] = sBucket
+            var cBucket = rateBucketsByContent[contentKey] ?? TokenBucket(capacity: contentBucketCapacity, tokens: contentBucketCapacity, refillPerSec: contentBucketRefill, lastRefill: now)
+            let contentAllowed = cBucket.allow(now: now)
+            rateBucketsByContent[contentKey] = cBucket
+            if !(senderAllowed && contentAllowed) { return }
+        }
+
         // Persist mesh messages to mesh timeline always
         if !isGeo && finalMessage.sender != "system" {
             meshTimeline.append(finalMessage)
@@ -5086,32 +5173,58 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         }
         #endif
 
-        // Check if this is our own message being echoed back (avoid dup)
-        if finalMessage.sender != nickname && finalMessage.sender != "system" {
-            if !finalMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                addMessage(finalMessage)
-            }
-            return
+        // Append via batching buffer (skip empty content)
+        if !finalMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            enqueuePublic(finalMessage)
         }
+    }
 
-        if finalMessage.sender != "system" {
-            // Check for duplicates
-            let messageExists = messages.contains { existingMsg in
-                if existingMsg.id == finalMessage.id { return true }
-                if existingMsg.content == finalMessage.content && existingMsg.sender == finalMessage.sender {
-                    let timeDiff = abs(existingMsg.timestamp.timeIntervalSince(finalMessage.timestamp))
-                    return timeDiff < 1.0
-                }
-                return false
-            }
-            if !messageExists && !finalMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                addMessage(finalMessage)
-            }
-        } else {
-            if !finalMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                addMessage(finalMessage)
-            }
+    // MARK: - Public message batching helpers
+    private func enqueuePublic(_ message: BitchatMessage) {
+        publicBuffer.append(message)
+        schedulePublicFlush()
+    }
+
+    private func schedulePublicFlush() {
+        if publicBufferTimer != nil { return }
+        publicBufferTimer = Timer.scheduledTimer(withTimeInterval: publicFlushInterval, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            self.flushPublicBuffer()
         }
+    }
+
+    private func flushPublicBuffer() {
+        publicBufferTimer?.invalidate()
+        publicBufferTimer = nil
+        guard !publicBuffer.isEmpty else { return }
+
+        // Dedup against existing by id and near-duplicate messages by content (within ~1s), across senders
+        var seenIDs = Set(messages.map { $0.id })
+        let recent = Array(messages.suffix(200))
+        var recentContentLatest: [String: Date] = [:]
+        for e in recent {
+            let key = normalizedContentKey(e.content)
+            let prev = recentContentLatest[key]
+            if prev == nil || e.timestamp > prev! { recentContentLatest[key] = e.timestamp }
+        }
+        var added: [BitchatMessage] = []
+        var batchContentLatest: [String: Date] = [:]
+        for m in publicBuffer {
+            if seenIDs.contains(m.id) { continue }
+            let ckey = normalizedContentKey(m.content)
+            if let ts = recentContentLatest[ckey], abs(ts.timeIntervalSince(m.timestamp)) < 1.0 { continue }
+            if let ts = batchContentLatest[ckey], abs(ts.timeIntervalSince(m.timestamp)) < 1.0 { continue }
+            seenIDs.insert(m.id)
+            added.append(m)
+            batchContentLatest[ckey] = m.timestamp
+        }
+        publicBuffer.removeAll(keepingCapacity: true)
+        guard !added.isEmpty else { return }
+
+        // Rough chronological order: sort the batch by timestamp before appending
+        added.sort { $0.timestamp < $1.timestamp }
+        messages.append(contentsOf: added)
+        trimMessagesIfNeeded()
     }
     
     /// Check for mentions and send notifications
