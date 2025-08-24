@@ -1,7 +1,8 @@
 import Foundation
 
 /// Directory of online Nostr relays with approximate GPS locations, used for geohash routing.
-struct GeoRelayDirectory {
+@MainActor
+final class GeoRelayDirectory {
     struct Entry: Hashable {
         let host: String
         let lat: Double
@@ -9,10 +10,17 @@ struct GeoRelayDirectory {
     }
 
     static let shared = GeoRelayDirectory()
-    private let entries: [Entry]
+    private(set) var entries: [Entry] = []
+    private let cacheFileName = "georelays_cache.csv"
+    private let lastFetchKey = "georelay.lastFetchAt"
+    private let remoteURL = URL(string: "https://raw.githubusercontent.com/permissionlesstech/georelays/refs/heads/main/nostr_relays.csv")!
+    private let fetchInterval: TimeInterval = 60 * 60 * 24 // 24h
 
     private init() {
-        self.entries = GeoRelayDirectory.loadEntries()
+        // Load cached or bundled data synchronously
+        self.entries = self.loadLocalEntries()
+        // Fire-and-forget remote refresh if stale
+        prefetchIfNeeded()
     }
 
     /// Returns up to `count` relay URLs (wss://) closest to the geohash center.
@@ -32,23 +40,72 @@ struct GeoRelayDirectory {
         return sorted.map { "wss://\($0.host)" }
     }
 
-    // MARK: - Loading
-    private static func loadEntries() -> [Entry] {
-        // Try bundled resource first
-        if let url = Bundle.main.url(forResource: "online_relays_gps", withExtension: "csv") ??
-                     Bundle.main.url(forResource: "online_relays_gps", withExtension: "csv", subdirectory: "relays"),
-           let data = try? Data(contentsOf: url),
-           let text = String(data: data, encoding: .utf8) {
-            return parseCSV(text)
+    // MARK: - Remote Fetch
+    func prefetchIfNeeded() {
+        let now = Date()
+        let last = UserDefaults.standard.object(forKey: lastFetchKey) as? Date ?? .distantPast
+        guard now.timeIntervalSince(last) >= fetchInterval else { return }
+        fetchRemote()
+    }
+
+    private func fetchRemote() {
+        let req = URLRequest(url: remoteURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        let task = URLSession.shared.dataTask(with: req) { [weak self] data, _, error in
+            guard let self = self else { return }
+            if let data = data, error == nil, let text = String(data: data, encoding: .utf8) {
+                let parsed = GeoRelayDirectory.parseCSV(text)
+                if !parsed.isEmpty {
+                    Task { @MainActor in
+                        self.entries = parsed
+                        self.persistCache(text)
+                        UserDefaults.standard.set(Date(), forKey: self.lastFetchKey)
+                        SecureLogger.log("GeoRelayDirectory: refreshed \(parsed.count) relays from remote", category: SecureLogger.session, level: .info)
+                    }
+                    return
+                }
+            }
+            SecureLogger.log("GeoRelayDirectory: remote fetch failed; keeping local entries", category: SecureLogger.session, level: .warning)
         }
-        // Try filesystem path (development/test environments)
+        task.resume()
+    }
+
+    private func persistCache(_ text: String) {
+        guard let url = cacheURL() else { return }
+        do {
+            try text.data(using: .utf8)?.write(to: url, options: .atomic)
+        } catch {
+            SecureLogger.log("GeoRelayDirectory: failed to write cache: \(error)", category: SecureLogger.session, level: .warning)
+        }
+    }
+
+    // MARK: - Loading
+    private func loadLocalEntries() -> [Entry] {
+        // Prefer cached file if present
+        if let cache = self.cacheURL(),
+           let data = try? Data(contentsOf: cache),
+           let text = String(data: data, encoding: .utf8) {
+            let arr = parseCSV(text)
+            if !arr.isEmpty { return arr }
+        }
+        // Try bundled resource(s)
+        let bundleCandidates = [
+            Bundle.main.url(forResource: "nostr_relays", withExtension: "csv"),
+            Bundle.main.url(forResource: "online_relays_gps", withExtension: "csv"),
+            Bundle.main.url(forResource: "online_relays_gps", withExtension: "csv", subdirectory: "relays")
+        ].compactMap { $0 }
+        for url in bundleCandidates {
+            if let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) {
+                let arr = parseCSV(text)
+                if !arr.isEmpty { return arr }
+            }
+        }
+        // Try filesystem path (development/test)
         if let cwd = FileManager.default.currentDirectoryPath as String?,
            let data = try? Data(contentsOf: URL(fileURLWithPath: cwd).appendingPathComponent("relays/online_relays_gps.csv")),
            let text = String(data: data, encoding: .utf8) {
             return parseCSV(text)
         }
-        // No data available
-        SecureLogger.log("GeoRelayDirectory: relay CSV not found; falling back to default relay set", category: SecureLogger.session, level: .warning)
+        SecureLogger.log("GeoRelayDirectory: no local CSV found; entries empty", category: SecureLogger.session, level: .warning)
         return []
     }
 
@@ -62,11 +119,25 @@ struct GeoRelayDirectory {
             if idx == 0 && line.lowercased().contains("relay url") { continue }
             let parts = line.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
             guard parts.count >= 3 else { continue }
-            let host = parts[0].replacingOccurrences(of: "wss://", with: "")
+            var host = parts[0]
+            host = host.replacingOccurrences(of: "https://", with: "")
+            host = host.replacingOccurrences(of: "http://", with: "")
+            host = host.replacingOccurrences(of: "wss://", with: "")
+            host = host.replacingOccurrences(of: "ws://", with: "")
+            host = host.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard let lat = Double(parts[1]), let lon = Double(parts[2]) else { continue }
             result.insert(Entry(host: host, lat: lat, lon: lon))
         }
         return Array(result)
+    }
+
+    private func cacheURL() -> URL? {
+        do {
+            let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            let dir = base.appendingPathComponent("bitchat", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir.appendingPathComponent(cacheFileName)
+        } catch { return nil }
     }
 }
 
