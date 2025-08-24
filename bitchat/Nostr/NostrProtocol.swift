@@ -287,19 +287,31 @@ struct NostrProtocol {
         let tag = rest.suffix(16)
         let ct = rest.dropLast(16)
 
-        // Derive shared secret (try even then odd Y)
-        var sharedSecret: Data
-        do {
-            sharedSecret = try deriveSharedSecret(privateKey: recipientKey, publicKey: senderPubkeyData)
-        } catch {
-            guard senderPubkeyData.count == 32 else { throw error }
-            var alt = Data([0x03])
-            alt.append(senderPubkeyData)
-            sharedSecret = try deriveSharedSecretDirect(privateKey: recipientKey, publicKey: alt)
+        // Try decryption with even-Y then odd-Y when sender pubkey is x-only
+        func attemptDecrypt(using pubKeyData: Data) throws -> Data {
+            let ss = try deriveSharedSecret(privateKey: recipientKey, publicKey: pubKeyData)
+            let key = try deriveNIP44V2Key(from: ss)
+            return try XChaCha20Poly1305Compat.open(
+                ciphertext: Data(ct),
+                tag: Data(tag),
+                key: key,
+                nonce24: Data(nonce24)
+            )
         }
-        let key = try deriveNIP44V2Key(from: sharedSecret)
-        let pt = try XChaCha20Poly1305Compat.open(ciphertext: Data(ct), tag: Data(tag), key: key, nonce24: Data(nonce24))
-        return String(data: pt, encoding: .utf8) ?? ""
+
+        // If 32 bytes (x-only) try both parities, otherwise single try
+        if senderPubkeyData.count == 32 {
+            let even = Data([0x02]) + senderPubkeyData
+            if let pt = try? attemptDecrypt(using: even) {
+                return String(data: pt, encoding: .utf8) ?? ""
+            }
+            let odd = Data([0x03]) + senderPubkeyData
+            let pt = try attemptDecrypt(using: odd)
+            return String(data: pt, encoding: .utf8) ?? ""
+        } else {
+            let pt = try attemptDecrypt(using: senderPubkeyData)
+            return String(data: pt, encoding: .utf8) ?? ""
+        }
     }
     
     private static func deriveSharedSecret(
