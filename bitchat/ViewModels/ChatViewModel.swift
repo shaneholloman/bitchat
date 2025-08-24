@@ -871,6 +871,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                                             category: SecureLogger.session, level: .warning)
                         }
                     }
+                case .verifyChallenge, .verifyResponse:
+                    // QR verification payloads over Nostr are not supported; ignore in geohash DMs
+                    break
                 }
             }
         } catch { }
@@ -3866,6 +3869,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                         objectWillChange.send()
                     }
                 }
+            case .verifyChallenge, .verifyResponse:
+                // Not yet handled over BLE; ignore
+                break
             }
         }
     }
@@ -4552,6 +4558,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                     privateChats[targetPeerID]?[idx].deliveryStatus = .read(by: peerName, at: Date())
                     objectWillChange.send()
                 }
+            case .verifyChallenge, .verifyResponse:
+                // Ignore verification payloads arriving via Nostr path for now
+                break
             }
             
         } catch {
