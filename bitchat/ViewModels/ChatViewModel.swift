@@ -719,7 +719,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             self.processedNostrEvents.insert(event.id)
             if let gh = self.currentGeohash,
                let myGeoIdentity = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh),
-               myGeoIdentity.publicKeyHex.lowercased() == event.pubkey.lowercased() { return }
+               myGeoIdentity.publicKeyHex.lowercased() == event.pubkey.lowercased() {
+                // Skip very recent self-echo from relay, but allow older events (e.g., after app restart)
+                let eventTime = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+                if Date().timeIntervalSince(eventTime) < 15 { return }
+            }
             if let nickTag = event.tags.first(where: { $0.first == "n" }), nickTag.count >= 2 {
                 let nick = nickTag[1]
                 self.geoNicknames[event.pubkey.lowercased()] = nick
@@ -1387,11 +1391,12 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                                     category: SecureLogger.session, level: .info)
                 }
             }
-            // Skip our own events (we already locally echoed)
+            // Skip only very recent self-echo from relay; include older self events for hydration
             if let gh = self.currentGeohash,
                let myGeoIdentity = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh),
                myGeoIdentity.publicKeyHex.lowercased() == event.pubkey.lowercased() {
-                return
+                let eventTime = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+                if Date().timeIntervalSince(eventTime) < 15 { return }
             }
             // Cache nickname from tag if present
             if let nickTag = event.tags.first(where: { $0.first == "n" }), nickTag.count >= 2 {
