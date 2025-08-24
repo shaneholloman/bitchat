@@ -2,15 +2,12 @@ import Foundation
 import CryptoKit
 
 /// QR verification scaffolding: schema, signing, and basic challenge/response helpers.
-@MainActor
 final class VerificationService {
     static let shared = VerificationService()
 
-    private let noise: NoiseEncryptionService = {
-        // We reuse the singleton inside BLEService normally; for scaffolding we access a cached instance.
-        // In production, inject the transport's Noise service.
-        return BLEService().getNoiseService()
-    }()
+    // Injected Noise service from the running transport (do NOT create new BLEService)
+    private var noise: NoiseEncryptionService?
+    func configure(with noise: NoiseEncryptionService) { self.noise = noise }
 
     /// Encapsulates the data encoded into a verification QR
     struct VerificationQR: Codable {
@@ -76,6 +73,12 @@ final class VerificationService {
 
     /// Build a signed QR string for the current identity
     func buildMyQRString(nickname: String, npub: String?) -> String? {
+        // Simple short-lived cache to speed up sheet opening
+        struct Cache { static var last: (nick: String, npub: String?, builtAt: Date, value: String)? }
+        if let c = Cache.last, c.nick == nickname, c.npub == npub, Date().timeIntervalSince(c.builtAt) < 60 {
+            return c.value
+        }
+        guard let noise = noise else { return nil }
         let noiseKey = noise.getStaticPublicKeyData().hexEncodedString()
         let signKey = noise.getSigningPublicKeyData().hexEncodedString()
         let ts = Int64(Date().timeIntervalSince1970)
@@ -93,7 +96,9 @@ final class VerificationService {
                                     ts: payload.ts,
                                     nonceB64: payload.nonceB64,
                                     sigHex: sig.map { String(format: "%02x", $0) }.joined())
-        return signed.toURLString()
+        let out = signed.toURLString()
+        Cache.last = (nickname, npub, Date(), out)
+        return out
     }
 
     /// Verify a scanned QR and return the parsed payload if valid (signature + freshness checks)
@@ -104,6 +109,7 @@ final class VerificationService {
         if now - Double(qr.ts) > maxAge { return nil }
         // Verify signature using embedded ed25519 signKey
         guard let sig = Data(hexString: qr.sigHex), let signKey = Data(hexString: qr.signKeyHex) else { return nil }
+        guard let noise = noise else { return nil }
         let ok = noise.verifySignature(sig, for: qr.canonicalBytes(), publicKey: signKey)
         return ok ? qr : nil
     }
@@ -128,11 +134,52 @@ final class VerificationService {
         let nk = noiseKeyHex.data(using: .utf8) ?? Data()
         msg.append(UInt8(min(nk.count, 255))); msg.append(nk.prefix(255))
         msg.append(nonceA)
-        guard let sig = noise.signData(msg) else { return nil }
+        guard let noise = noise, let sig = noise.signData(msg) else { return nil }
         var tlv = Data()
         tlv.append(0x01); tlv.append(UInt8(min(nk.count, 255))); tlv.append(nk.prefix(255))
         tlv.append(0x02); tlv.append(UInt8(min(nonceA.count, 255))); tlv.append(nonceA.prefix(255))
         tlv.append(0x03); tlv.append(UInt8(min(sig.count, 255))); tlv.append(sig.prefix(255))
         return NoisePayload(type: .verifyResponse, data: tlv).encode()
+    }
+
+    func parseVerifyChallenge(_ data: Data) -> (noiseKeyHex: String, nonceA: Data)? {
+        var idx = 0
+        func take(_ n: Int) -> Data? {
+            guard idx + n <= data.count else { return nil }
+            let d = data[idx..<(idx+n)]
+            idx += n
+            return Data(d)
+        }
+        // Expect type already stripped; we receive only TLV here
+        // TLV 0x01 noiseKeyHex
+        guard let t1 = take(1), t1[0] == 0x01, let l1 = take(1), let s1 = take(Int(l1[0])),
+              let noiseStr = String(data: s1, encoding: .utf8) else { return nil }
+        // TLV 0x02 nonceA
+        guard let t2 = take(1), t2[0] == 0x02, let l2 = take(1), let nA = take(Int(l2[0])) else { return nil }
+        return (noiseStr, nA)
+    }
+
+    func parseVerifyResponse(_ data: Data) -> (noiseKeyHex: String, nonceA: Data, signature: Data)? {
+        var idx = 0
+        func take(_ n: Int) -> Data? {
+            guard idx + n <= data.count else { return nil }
+            let d = data[idx..<(idx+n)]
+            idx += n
+            return Data(d)
+        }
+        guard let t1 = take(1), t1[0] == 0x01, let l1 = take(1), let s1 = take(Int(l1[0])),
+              let noiseStr = String(data: s1, encoding: .utf8) else { return nil }
+        guard let t2 = take(1), t2[0] == 0x02, let l2 = take(1), let nA = take(Int(l2[0])) else { return nil }
+        guard let t3 = take(1), t3[0] == 0x03, let l3 = take(1), let sig = take(Int(l3[0])) else { return nil }
+        return (noiseStr, nA, sig)
+    }
+
+    func verifyResponseSignature(noiseKeyHex: String, nonceA: Data, signature: Data, signerPublicKeyHex: String) -> Bool {
+        var msg = Data("bitchat-verify-resp-v1".utf8)
+        let nk = noiseKeyHex.data(using: .utf8) ?? Data()
+        msg.append(UInt8(min(nk.count, 255))); msg.append(nk.prefix(255))
+        msg.append(nonceA)
+        guard let noise = noise, let pub = Data(hexString: signerPublicKeyHex) else { return false }
+        return noise.verifySignature(signature, for: msg, publicKey: pub)
     }
 }
