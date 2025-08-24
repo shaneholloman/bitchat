@@ -58,6 +58,8 @@ struct ContentView: View {
     @State private var scrollThrottleTimer: Timer?
     @State private var autocompleteDebounceTimer: Timer?
     @State private var showLocationChannelsSheet = false
+    @State private var showMyQRSheet = false
+    @State private var showScanQRSheet = false
     @State private var expandedMessageIDs: Set<String> = []
     // Window sizes for rendering (infinite scroll up)
     @State private var windowCountPublic: Int = 300
@@ -1224,12 +1226,35 @@ struct ContentView: View {
                         .accessibilityHidden(true)
                 }
                 .foregroundColor(headerCountColor)
+
+                // QR actions
+                Button(action: { showMyQRSheet = true }) {
+                    Image(systemName: "qrcode")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .help("Show my verification QR")
+
+                Button(action: { showScanQRSheet = true }) {
+                    Image(systemName: "qrcode.viewfinder")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .help("Scan a friend's QR to verify")
             }
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     showSidebar.toggle()
                     sidebarDragOffset = 0
                 }
+            }
+            .sheet(isPresented: $showMyQRSheet) {
+                let npub = try? NostrIdentityBridge.getCurrentNostrIdentity()?.npub
+                let qr = VerificationService.shared.buildMyQRString(nickname: viewModel.nickname, npub: npub)
+                MyQRView(qrString: qr ?? "")
+            }
+            .sheet(isPresented: $showScanQRSheet) {
+                QRScanView()
             }
         }
         .frame(height: 44)
