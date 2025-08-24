@@ -57,8 +57,6 @@ struct QRCodeImage: View {
         Group {
             if let image = generateImage() {
                 ImageWrapper(image: image)
-                    .interpolation(.none)
-                    .resizable()
                     .frame(width: size, height: size)
             } else {
                 RoundedRectangle(cornerRadius: 8)
@@ -91,9 +89,13 @@ struct ImageWrapper: View {
         #if os(iOS)
         let ui = UIImage(cgImage: image)
         return Image(uiImage: ui)
+            .interpolation(.none)
+            .resizable()
         #else
         let ns = NSImage(cgImage: image, size: .zero)
         return Image(nsImage: ns)
+            .interpolation(.none)
+            .resizable()
         #endif
     }
 }
