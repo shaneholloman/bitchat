@@ -104,9 +104,25 @@ struct ImageWrapper: View {
 struct QRScanView: View {
     @State private var input = ""
     @State private var result: String = ""
+    @State private var lastValid: String = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Paste QR content to simulate scan:")
+            #if os(iOS)
+            Text("Scan a friend's QR")
+                .font(.system(size: 14, weight: .medium, design: .monospaced))
+            CameraScannerView { code in
+                if let qr = VerificationService.shared.verifyScannedQR(code) {
+                    result = "Valid QR: \(qr.nickname)"
+                    lastValid = code
+                } else {
+                    result = "Invalid or expired QR"
+                }
+            }
+            .frame(height: 260)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.3), lineWidth: 1))
+            #else
+            Text("Paste QR content to validate:")
                 .font(.system(size: 14, weight: .medium, design: .monospaced))
             TextEditor(text: $input)
                 .frame(height: 100)
@@ -119,11 +135,88 @@ struct QRScanView: View {
                 }
             }
             .buttonStyle(.bordered)
+            #endif
             Text(result)
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundColor(result.contains("Valid") ? .green : .orange)
+            if !lastValid.isEmpty {
+                Text(lastValid)
+                    .font(.system(size: 10, design: .monospaced))
+                    .textSelection(.enabled)
+                    .foregroundColor(.secondary)
+            }
             Spacer()
         }
         .padding()
     }
 }
+
+#if os(iOS)
+import AVFoundation
+
+struct CameraScannerView: UIViewRepresentable {
+    typealias UIViewType = PreviewView
+    var onCode: (String) -> Void
+
+    func makeUIView(context: Context) -> PreviewView {
+        let view = PreviewView()
+        context.coordinator.setup(sessionOwner: view, onCode: onCode)
+        return view
+    }
+
+    func updateUIView(_ uiView: PreviewView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+        private var onCode: ((String) -> Void)?
+        private weak var owner: PreviewView?
+        private let session = AVCaptureSession()
+
+        func setup(sessionOwner: PreviewView, onCode: @escaping (String) -> Void) {
+            self.owner = sessionOwner
+            self.onCode = onCode
+            session.beginConfiguration()
+            session.sessionPreset = .high
+            guard let device = AVCaptureDevice.default(for: .video),
+                  let input = try? AVCaptureDeviceInput(device: device),
+                  session.canAddInput(input) else { return }
+            session.addInput(input)
+            let output = AVCaptureMetadataOutput()
+            guard session.canAddOutput(output) else { return }
+            session.addOutput(output)
+            output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+            if output.availableMetadataObjectTypes.contains(.qr) {
+                output.metadataObjectTypes = [.qr]
+            }
+            session.commitConfiguration()
+            sessionOwner.videoPreviewLayer.session = session
+            // Request permission and start
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    if granted { self.session.startRunning() }
+                }
+            }
+        }
+
+        func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+            for obj in metadataObjects {
+                guard let m = obj as? AVMetadataMachineReadableCodeObject,
+                      m.type == .qr,
+                      let str = m.stringValue else { continue }
+                onCode?(str)
+            }
+        }
+    }
+
+    final class PreviewView: UIView {
+        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+        var videoPreviewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            videoPreviewLayer.videoGravity = .resizeAspectFill
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    }
+}
+#endif
