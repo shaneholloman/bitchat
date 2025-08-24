@@ -21,7 +21,7 @@ final class VerificationService {
         let nickname: String
         let ts: Int64
         let nonceB64: String
-        let sigHex: String
+        var sigHex: String
 
         static let context = "bitchat-verify-v1"
 
@@ -85,8 +85,14 @@ final class VerificationService {
         let payload = VerificationQR(v: 1, noiseKeyHex: noiseKey, signKeyHex: signKey, npub: npub, nickname: nickname, ts: ts, nonceB64: nonceB64, sigHex: "")
         let msg = payload.canonicalBytes()
         guard let sig = noise.signData(msg) else { return nil }
-        var signed = payload
-        signed.sigHex = sig.hexEncodedString()
+        let signed = VerificationQR(v: payload.v,
+                                    noiseKeyHex: payload.noiseKeyHex,
+                                    signKeyHex: payload.signKeyHex,
+                                    npub: payload.npub,
+                                    nickname: payload.nickname,
+                                    ts: payload.ts,
+                                    nonceB64: payload.nonceB64,
+                                    sigHex: sig.map { String(format: "%02x", $0) }.joined())
         return signed.toURLString()
     }
 
@@ -130,22 +136,3 @@ final class VerificationService {
         return NoisePayload(type: .verifyResponse, data: tlv).encode()
     }
 }
-
-private extension Data {
-    func hexEncodedString() -> String {
-        self.map { String(format: "%02x", $0) }.joined()
-    }
-    init?(hexString: String) {
-        let len = hexString.count
-        guard len % 2 == 0 else { return nil }
-        var data = Data(capacity: len/2)
-        var i = hexString.startIndex
-        while i < hexString.endIndex {
-            let j = hexString.index(i, offsetBy: 2)
-            if let b = UInt8(hexString[i..<j], radix: 16) { data.append(b) } else { return nil }
-            i = j
-        }
-        self = data
-    }
-}
-
