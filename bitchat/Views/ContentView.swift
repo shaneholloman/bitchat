@@ -291,15 +291,15 @@ struct ContentView: View {
                     // Build stable UI IDs with a context key to avoid ID collisions when switching channels
                     #if os(iOS)
                     let contextKey: String = {
-                        if let peer = privatePeer { return "dm:\\(peer)" }
+                        if let peer = privatePeer { return "dm:\(peer)" }
                         switch locationManager.selectedChannel {
                         case .mesh: return "mesh"
-                        case .location(let ch): return "geo:\\(ch.geohash)"
+                        case .location(let ch): return "geo:\(ch.geohash)"
                         }
                     }()
                     #else
                     let contextKey: String = {
-                        if let peer = privatePeer { return "dm:\\(peer)" }
+                        if let peer = privatePeer { return "dm:\(peer)" }
                         return "mesh"
                     }()
                     #endif
@@ -400,15 +400,15 @@ struct ContentView: View {
                                 let step = 200
                                 #if os(iOS)
                                 let contextKey: String = {
-                                    if let peer = privatePeer { return "dm:\\(peer)" }
+                                    if let peer = privatePeer { return "dm:\(peer)" }
                                     switch locationManager.selectedChannel {
                                     case .mesh: return "mesh"
-                                    case .location(let ch): return "geo:\\(ch.geohash)"
+                                    case .location(let ch): return "geo:\(ch.geohash)"
                                     }
                                 }()
                                 #else
                                 let contextKey: String = {
-                                    if let peer = privatePeer { return "dm:\\(peer)" }
+                                    if let peer = privatePeer { return "dm:\(peer)" }
                                     return "mesh"
                                 }()
                                 #endif
