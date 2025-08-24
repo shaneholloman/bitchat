@@ -833,16 +833,14 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                             self.sentReadReceipts.insert(messageId)
                         }
                     } else {
-                        // Optionally notify if app backgrounded and message is truly unread
-                        #if os(iOS)
-                        if shouldMarkUnread && UIApplication.shared.applicationState != .active {
+                        // Notify for truly unread and recent messages when not viewing
+                        if shouldMarkUnread {
                             NotificationService.shared.sendPrivateMessageNotification(
                                 from: senderName,
                                 message: pm.content,
                                 peerID: convKey
                             )
                         }
-                        #endif
                     }
                     self.objectWillChange.send()
                 case .delivered:
@@ -1521,19 +1519,14 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                     } else {
                         // pared back: omit defer READ log
                     }
-                    // Notify only when app is backgrounded and not viewing, and only if not already read
-                    #if os(iOS)
+                    // Notify for truly unread and recent messages when not viewing
                     if !isViewing && shouldMarkUnread {
-                        if UIApplication.shared.applicationState != .active {
-                            NotificationService.shared.sendPrivateMessageNotification(
-                                from: senderName,
-                                message: pm.content,
-                                peerID: convKey
-                            )
-                            // pared back: omit notification log
-                        }
+                        NotificationService.shared.sendPrivateMessageNotification(
+                            from: senderName,
+                            message: pm.content,
+                            peerID: convKey
+                        )
                     }
-                    #endif
                     self.objectWillChange.send()
                 default:
                     // Handle delivered/read receipts for our sent messages
