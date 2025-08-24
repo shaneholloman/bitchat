@@ -84,7 +84,7 @@ final class GeoRelayDirectory {
         if let cache = self.cacheURL(),
            let data = try? Data(contentsOf: cache),
            let text = String(data: data, encoding: .utf8) {
-            let arr = parseCSV(text)
+            let arr = Self.parseCSV(text)
             if !arr.isEmpty { return arr }
         }
         // Try bundled resource(s)
@@ -95,7 +95,7 @@ final class GeoRelayDirectory {
         ].compactMap { $0 }
         for url in bundleCandidates {
             if let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) {
-                let arr = parseCSV(text)
+                let arr = Self.parseCSV(text)
                 if !arr.isEmpty { return arr }
             }
         }
@@ -103,13 +103,13 @@ final class GeoRelayDirectory {
         if let cwd = FileManager.default.currentDirectoryPath as String?,
            let data = try? Data(contentsOf: URL(fileURLWithPath: cwd).appendingPathComponent("relays/online_relays_gps.csv")),
            let text = String(data: data, encoding: .utf8) {
-            return parseCSV(text)
+            return Self.parseCSV(text)
         }
         SecureLogger.log("GeoRelayDirectory: no local CSV found; entries empty", category: SecureLogger.session, level: .warning)
         return []
     }
 
-    private static func parseCSV(_ text: String) -> [Entry] {
+    nonisolated static func parseCSV(_ text: String) -> [Entry] {
         var result: Set<Entry> = []
         let lines = text.split(whereSeparator: { $0.isNewline })
         // Skip header if present
