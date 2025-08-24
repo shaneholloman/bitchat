@@ -64,6 +64,10 @@
 		3849CA6D99B2D536636DF4A6 /* MockBLEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7CCF2BD78A3F3DAE6DA145 /* MockBLEService.swift */; };
 		38EDDC049FD56B1BB1F14C91 /* IdentityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05BA20BC0F123F1507C5C247 /* IdentityModels.swift */; };
 		3EE336D150427F736F32B56C /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = B1D9136AA0083366353BFA2F /* P256K */; };
+		E0A1B2C3D4E5F6012345678B /* GeoRelayDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A1B2C3D4E5F60123456789 /* GeoRelayDirectory.swift */; };
+		E0A1B2C3D4E5F6012345678C /* GeoRelayDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A1B2C3D4E5F60123456789 /* GeoRelayDirectory.swift */; };
+		E0A1B2C3D4E5F6012345678D /* online_relays_gps.csv in Resources */ = {isa = PBXBuildFile; fileRef = E0A1B2C3D4E5F6012345678A /* online_relays_gps.csv */; };
+		E0A1B2C3D4E5F6012345678E /* online_relays_gps.csv in Resources */ = {isa = PBXBuildFile; fileRef = E0A1B2C3D4E5F6012345678A /* online_relays_gps.csv */; };
 		4B747085D07A1BCE0F5BA612 /* BinaryProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2136C3E22D02D4A8DBE7EAB /* BinaryProtocol.swift */; };
 		501BC56B1A08C0327A09AAF1 /* NoiseEncryptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 394E8A1AC76EFAE352075BE9 /* NoiseEncryptionService.swift */; };
 		5C93B4FDD0C448C3EDDBF8AE /* FavoritesPersistenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419BFFF209EBA93F410E9E9F /* FavoritesPersistenceService.swift */; };
@@ -221,6 +225,8 @@
 		5318B743C64628A125261163 /* BinaryEncodingUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BinaryEncodingUtils.swift; sourceTree = "<group>"; };
 		5BC5AB43F4A8FB62C935CD74 /* IntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationTests.swift; sourceTree = "<group>"; };
 		5F8043995007F0D84438EDD9 /* NostrIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrIdentity.swift; sourceTree = "<group>"; };
+        E0A1B2C3D4E5F60123456789 /* GeoRelayDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoRelayDirectory.swift; sourceTree = "<group>"; };
+        E0A1B2C3D4E5F6012345678A /* online_relays_gps.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = relays/online_relays_gps.csv; sourceTree = "<group>"; };
 		61F92EBA29C47C0FCC482F1F /* bitchatShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = bitchatShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		763E0DBA9492A654FC0CDCB9 /* AppInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfoView.swift; sourceTree = "<group>"; };
 		78595178957244CBDF7E79B6 /* NostrRelayManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrRelayManager.swift; sourceTree = "<group>"; };
@@ -302,6 +308,7 @@
 			isa = PBXGroup;
 			children = (
 				2F82C5FC8433F4064F079D1F /* bitchat */,
+				E0A1B2C3D4E5F6012345678A /* online_relays_gps.csv */,
 				A2E8C336FA1ADBEC03261DFD /* bitchatShareExtension */,
 				C3D98EB3E1B455E321F519F4 /* bitchatTests */,
 				9F37F9F2C353B58AC809E93B /* Products */,
@@ -519,6 +526,7 @@
 				5F8043995007F0D84438EDD9 /* NostrIdentity.swift */,
 				2E5A9FF4AEA8A923317ED26A /* NostrProtocol.swift */,
 				78595178957244CBDF7E79B6 /* NostrRelayManager.swift */,
+                E0A1B2C3D4E5F60123456789 /* GeoRelayDirectory.swift */,
 			);
 			path = Nostr;
 			sourceTree = "<group>";
@@ -683,6 +691,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7DD72D928FF9DD3CA81B46B0 /* Assets.xcassets in Resources */,
+                E0A1B2C3D4E5F6012345678D /* online_relays_gps.csv in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -692,6 +701,7 @@
 			files = (
 				BCCFEDC1EBE59323C3C470BF /* Assets.xcassets in Resources */,
 				E65BBB6544FE0159F3C6C3A8 /* LaunchScreen.storyboard in Resources */,
+                E0A1B2C3D4E5F6012345678E /* online_relays_gps.csv in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -756,6 +766,7 @@
 				D111988977C3BC246AB27FA4 /* SecureLogger.swift in Sources */,
 				8DE687D2EB5EB120868DBFB5 /* BLEService.swift in Sources */,
 				AA11BB22CC33DD44EE55FF66 /* MessageTextHelpers.swift in Sources */,
+                E0A1B2C3D4E5F6012345678B /* GeoRelayDirectory.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -809,6 +820,7 @@
 				EC5241969D2550B97629EBD0 /* SecureLogger.swift in Sources */,
 				C165DD35BB8E9C327A3C2DA4 /* BLEService.swift in Sources */,
 				AA11BB22CC33DD44EE55FF67 /* MessageTextHelpers.swift in Sources */,
+                E0A1B2C3D4E5F6012345678C /* GeoRelayDirectory.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
