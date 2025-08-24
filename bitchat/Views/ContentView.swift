@@ -451,7 +451,7 @@ struct ContentView: View {
                         .padding(.vertical, 2)
                     }
                 }
-                .transaction { $0.disablesAnimations = true }
+                .transaction { tx in if viewModel.isBatchingPublic { tx.disablesAnimations = true } }
                 .padding(.vertical, 4)
             }
             .background(backgroundColor)

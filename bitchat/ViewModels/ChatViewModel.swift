@@ -147,6 +147,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private let contentBucketCapacity: Double = 3
     private let contentBucketRefill: Double = 0.5 // tokens per second
 
+    @MainActor
     private func normalizedSenderKey(for message: BitchatMessage) -> String {
         if let spid = message.senderPeerID {
             if spid.hasPrefix("nostr:") || spid.hasPrefix("nostr_") {
@@ -377,6 +378,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private var publicBuffer: [BitchatMessage] = []
     private var publicBufferTimer: Timer? = nil
     private let publicFlushInterval: TimeInterval = 0.08 // ~12.5 fps batching
+    @Published private(set) var isBatchingPublic: Bool = false
+    private let lateInsertThreshold: TimeInterval = 15.0
     
     // Track sent read receipts to avoid duplicates (persisted across launches)
     // Note: Persistence happens automatically in didSet, no lifecycle observers needed
@@ -1262,6 +1265,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     #if os(iOS)
     @MainActor
     private func switchLocationChannel(to channel: ChannelID) {
+        // Flush pending public buffer to avoid cross-channel bleed
+        publicBufferTimer?.invalidate(); publicBufferTimer = nil
+        publicBuffer.removeAll(keepingCapacity: false)
         activeChannel = channel
         // Reset deduplication set and optionally hydrate timeline for mesh
         processedNostrEvents.removeAll()
@@ -5221,10 +5227,41 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         publicBuffer.removeAll(keepingCapacity: true)
         guard !added.isEmpty else { return }
 
-        // Rough chronological order: sort the batch by timestamp before appending
+        // Indicate batching for conditional UI animations
+        isBatchingPublic = true
+        // Rough chronological order: sort the batch by timestamp before inserting
         added.sort { $0.timestamp < $1.timestamp }
-        messages.append(contentsOf: added)
+        // Insert late arrivals into approximate position; append recent ones
+        let lastTs = messages.last?.timestamp ?? .distantPast
+        for m in added {
+            if m.timestamp < lastTs.addingTimeInterval(-lateInsertThreshold) {
+                let idx = insertionIndexByTimestamp(m.timestamp)
+                if idx >= messages.count { messages.append(m) } else { messages.insert(m, at: idx) }
+            } else {
+                messages.append(m)
+            }
+        }
         trimMessagesIfNeeded()
+        // Prewarm formatting for new messages (light scheme)
+        for m in added {
+            _ = self.formatMessageAsText(m, colorScheme: .light)
+        }
+        // Reset batching flag on next runloop to allow brief UI transaction window
+        DispatchQueue.main.async { [weak self] in self?.isBatchingPublic = false }
+    }
+
+    private func insertionIndexByTimestamp(_ ts: Date) -> Int {
+        var low = 0
+        var high = messages.count
+        while low < high {
+            let mid = (low + high) / 2
+            if messages[mid].timestamp < ts {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
     }
     
     /// Check for mentions and send notifications
