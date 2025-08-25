@@ -346,7 +346,9 @@ final class BLEService: NSObject {
         
         // Single maintenance timer for all periodic tasks (dispatch-based for determinism)
         let timer = DispatchSource.makeTimerSource(queue: bleQueue)
-        timer.schedule(deadline: .now() + 10.0, repeating: 10.0, leeway: .seconds(1))
+        timer.schedule(deadline: .now() + TransportConfig.bleMaintenanceInterval,
+                       repeating: TransportConfig.bleMaintenanceInterval,
+                       leeway: .seconds(TransportConfig.bleMaintenanceLeewaySeconds))
         timer.setEventHandler { [weak self] in
             self?.performMaintenance()
         }
@@ -1912,10 +1914,10 @@ final class BLEService: NSObject {
             if lastIsolatedAt == nil { lastIsolatedAt = Date() }
             let iso = lastIsolatedAt ?? Date()
             let elapsed = Date().timeIntervalSince(iso)
-            if elapsed > 60 {
-                dynamicRSSIThreshold = -92
+            if elapsed > TransportConfig.bleIsolationRelaxThresholdSeconds {
+                dynamicRSSIThreshold = TransportConfig.bleRSSIIsolatedRelaxed
             } else {
-                dynamicRSSIThreshold = -90
+                dynamicRSSIThreshold = TransportConfig.bleRSSIIsolatedBase
             }
             return
         }
@@ -1925,12 +1927,12 @@ final class BLEService: NSObject {
         // If we're at budget or queue is large, prefer closer peers
         let linkCount = peripherals.values.filter { $0.isConnected || $0.isConnecting }.count
         if linkCount >= maxCentralLinks || connectionCandidates.count > TransportConfig.bleConnectionCandidatesMax {
-            threshold = -85
+            threshold = TransportConfig.bleRSSIConnectedThreshold
         }
         // If we have many recent timeouts, raise further
-        let recentTimeouts = recentConnectTimeouts.filter { Date().timeIntervalSince($0.value) < 60 }.count
-        if recentTimeouts >= 3 {
-            threshold = max(threshold, -80)
+        let recentTimeouts = recentConnectTimeouts.filter { Date().timeIntervalSince($0.value) < TransportConfig.bleRecentTimeoutWindowSeconds }.count
+        if recentTimeouts >= TransportConfig.bleRecentTimeoutCountThreshold {
+            threshold = max(threshold, TransportConfig.bleRSSIHighTimeoutThreshold)
         }
         dynamicRSSIThreshold = threshold
     }

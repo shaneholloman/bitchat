@@ -707,8 +707,15 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         startGeoParticipantsTimer()
         // Unsubscribe + resubscribe
         NostrRelayManager.shared.unsubscribe(id: subID)
-        let filter = NostrFilter.geohashEphemeral(ch.geohash, since: Date().addingTimeInterval(-3600), limit: 200)
-        let subRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: ch.geohash, count: 5)
+        let filter = NostrFilter.geohashEphemeral(
+            ch.geohash,
+            since: Date().addingTimeInterval(-TransportConfig.nostrGeohashInitialLookbackSeconds),
+            limit: TransportConfig.nostrGeohashInitialLimit
+        )
+        let subRelays = GeoRelayDirectory.shared.closestRelays(
+            toGeohash: ch.geohash,
+            count: TransportConfig.nostrGeoRelayCount
+        )
         NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: subRelays) { [weak self] event in
             guard let self = self else { return }
             guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue else { return }
@@ -1264,7 +1271,10 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                             nickname: self.nickname,
                             teleported: LocationChannelManager.shared.teleported
                         )
-                        let targetRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: ch.geohash, count: 5)
+                        let targetRelays = GeoRelayDirectory.shared.closestRelays(
+                            toGeohash: ch.geohash,
+                            count: TransportConfig.nostrGeoRelayCount
+                        )
                         if targetRelays.isEmpty {
                             SecureLogger.log("Geo: no geohash relays available for \(ch.geohash); not sending", category: SecureLogger.session, level: .warning)
                         } else {
@@ -2450,12 +2460,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                         )
                         let targetRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: ch.geohash, count: 5)
                         if targetRelays.isEmpty {
-                    let targetRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: ch.geohash, count: 5)
-                    if targetRelays.isEmpty {
-                        SecureLogger.log("Geo: no geohash relays available for \(ch.geohash); not sending", category: SecureLogger.session, level: .warning)
-                    } else {
-                        NostrRelayManager.shared.sendEvent(event, to: targetRelays)
-                    }
+                            SecureLogger.log("Geo: no geohash relays available for \(ch.geohash); not sending", category: SecureLogger.session, level: .warning)
                         } else {
                             NostrRelayManager.shared.sendEvent(event, to: targetRelays)
                         }

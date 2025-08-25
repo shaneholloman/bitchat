@@ -37,4 +37,24 @@ enum TransportConfig {
     // UI thresholds
     static let uiLateInsertThreshold: TimeInterval = 15.0
     static let uiProcessedNostrEventsCap: Int = 2000
+
+    // BLE maintenance & thresholds
+    static let bleMaintenanceInterval: TimeInterval = 10.0
+    static let bleMaintenanceLeewaySeconds: Int = 1
+    static let bleIsolationRelaxThresholdSeconds: TimeInterval = 60
+    static let bleRecentTimeoutWindowSeconds: TimeInterval = 60
+    static let bleRecentTimeoutCountThreshold: Int = 3
+    static let bleRSSIIsolatedBase: Int = -90
+    static let bleRSSIIsolatedRelaxed: Int = -92
+    static let bleRSSIConnectedThreshold: Int = -85
+    static let bleRSSIHighTimeoutThreshold: Int = -80
+
+    // Location
+    static let locationDistanceFilterMeters: Double = 1000
+    static let locationLiveRefreshInterval: TimeInterval = 5.0
+
+    // Nostr geohash
+    static let nostrGeohashInitialLookbackSeconds: TimeInterval = 3600
+    static let nostrGeohashInitialLimit: Int = 200
+    static let nostrGeoRelayCount: Int = 5
 }

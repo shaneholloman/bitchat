@@ -177,15 +177,7 @@ final class NostrTransport: Transport {
     func sendBroadcastAnnounce() { /* no-op for Nostr */ }
     func sendDeliveryAck(for messageID: String, to peerID: String) {
         Task { @MainActor in
-            var recipientNostrPubkey: String?
-            if let noiseKey = Data(hexString: peerID),
-               let fav = FavoritesPersistenceService.shared.getFavoriteStatus(for: noiseKey) {
-                recipientNostrPubkey = fav.peerNostrPublicKey
-            }
-            if recipientNostrPubkey == nil, peerID.count == 16 {
-                recipientNostrPubkey = FavoritesPersistenceService.shared.getFavoriteStatus(forPeerID: peerID)?.peerNostrPublicKey
-            }
-            guard let recipientNpub = recipientNostrPubkey else { return }
+            guard let recipientNpub = resolveRecipientNpub(for: peerID) else { return }
             guard let senderIdentity = try? NostrIdentityBridge.getCurrentNostrIdentity() else { return }
             SecureLogger.log("NostrTransport: preparing DELIVERED ack for id=\(messageID.prefix(8))… to \(recipientNpub.prefix(16))…",
                             category: SecureLogger.session, level: .debug)
