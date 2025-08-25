@@ -2672,7 +2672,8 @@ extension BLEService: CBPeripheralManagerDelegate {
                 }
                 // If this was a single short write and still failed, log the raw chunk for debugging
                 if !hasMultiple, let only = sorted.first, let raw = only.value {
-                    SecureLogger.log("❌ Failed to decode packet from central, full data: \(raw.map { String(format: "%02x", $0) }.joined(separator: " "))", category: SecureLogger.session, level: .error)
+                    let prefix = raw.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
+                    SecureLogger.log("❌ Failed to decode packet from central (len=\(raw.count), prefix=\(prefix))", category: SecureLogger.session, level: .error)
                 }
             }
         }

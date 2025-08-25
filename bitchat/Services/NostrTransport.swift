@@ -159,6 +159,7 @@ final class NostrTransport: Transport {
     }
 
     // MARK: - Helpers
+    @MainActor
     private func resolveRecipientNpub(for peerID: String) -> String? {
         if let noiseKey = Data(hexString: peerID),
            let fav = FavoritesPersistenceService.shared.getFavoriteStatus(for: noiseKey),
