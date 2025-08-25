@@ -691,8 +691,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     // MARK: - Deinitialization
     
     deinit {
-        // Force immediate save
-        userDefaults.synchronize()
+        // No need to force UserDefaults synchronization
     }
     
     // Resubscribe to the active geohash channel without clearing timeline
@@ -891,7 +890,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     
     func saveNickname() {
         userDefaults.set(nickname, forKey: nicknameKey)
-        userDefaults.synchronize() // Force immediate save
+        // Persist nickname; no need to force synchronize
         
         // Send announce with new nickname to all peers
         meshService.sendBroadcastAnnounce()
@@ -2483,7 +2482,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     }
     
     @objc private func appWillResignActive() {
-        userDefaults.synchronize()
+        // No-op; avoid forcing synchronize on resign
     }
     
     @objc func applicationWillTerminate() {
@@ -2496,15 +2495,14 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         // Verify identity key is still there
         _ = KeychainManager.shared.verifyIdentityKeyExists()
         
-        userDefaults.synchronize()
+        // No need to force synchronize here
         
         // Verify identity key after save
         _ = KeychainManager.shared.verifyIdentityKeyExists()
     }
     
     @objc private func appWillTerminate() {
-        
-        userDefaults.synchronize()
+        // No need to force synchronize here
     }
     
     @MainActor
@@ -2749,8 +2747,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         // This will force creation of a new identity (new fingerprint) on next launch
         meshService.emergencyDisconnectAll()
         
-        // Force immediate UserDefaults synchronization
-        userDefaults.synchronize()
+        // No need to force UserDefaults synchronization
         
         // Reinitialize Nostr with new identity
         // This will generate new Nostr keys derived from new Noise keys

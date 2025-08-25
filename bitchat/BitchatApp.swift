@@ -107,7 +107,7 @@ struct BitchatApp: App {
             userDefaults.removeObject(forKey: "sharedContent")
             userDefaults.removeObject(forKey: "sharedContentType")
             userDefaults.removeObject(forKey: "sharedContentDate")
-            userDefaults.synchronize()
+            // No need to force synchronize here
             
             // Send the shared content immediately on the main queue
             DispatchQueue.main.async {
