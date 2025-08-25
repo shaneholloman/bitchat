@@ -31,6 +31,7 @@
 		047502BA2E560F690083520F /* RelayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 047502B82E560F690083520F /* RelayController.swift */; };
 		048A4BE72E5CCCC300162C4A /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048A4BE62E5CCCC300162C4A /* TransportConfig.swift */; };
 		048A4BE82E5CCCC300162C4A /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048A4BE62E5CCCC300162C4A /* TransportConfig.swift */; };
+		048A4BE92E5CCCC300162C4B /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048A4BE62E5CCCC300162C4A /* TransportConfig.swift */; };
 		049BD3902E4EC4F0001A566B /* PrivateChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 049BD38F2E4EC4F0001A566B /* PrivateChatManager.swift */; };
 		049BD3912E4EC4F0001A566B /* AutocompleteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 049BD38C2E4EC4F0001A566B /* AutocompleteService.swift */; };
 		049BD3922E4EC4F0001A566B /* CommandProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 049BD38D2E4EC4F0001A566B /* CommandProcessor.swift */; };
@@ -733,6 +734,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				048A4BE92E5CCCC300162C4B /* TransportConfig.swift in Sources */,
 				9C7D287C8E67AAE576A5ECB7 /* ShareViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
