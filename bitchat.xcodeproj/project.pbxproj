@@ -748,7 +748,7 @@
 				A1B2C3D54E5F60718293A4B6 /* XChaCha20Poly1305Compat.swift in Sources */,
 				AD11E46940D742AEAF547EB2 /* AppInfoView.swift in Sources */,
 				9B51E9B63A3EA59B1A7874BD /* BinaryEncodingUtils.swift in Sources */,
-				048A4BE82E5CCCC300162C4A /* TransportConfig.swift in Sources */,
+
 				049BD3B42E51F319001A566B /* NostrTransport.swift in Sources */,
 				049BD3B52E51F319001A566B /* MessageRouter.swift in Sources */,
 				4B747085D07A1BCE0F5BA612 /* BinaryProtocol.swift in Sources */,
@@ -808,7 +808,7 @@
 				A1B2C3D44E5F60718293A4B5 /* XChaCha20Poly1305Compat.swift in Sources */,
 				ABAF130D88561F4A646F0430 /* AppInfoView.swift in Sources */,
 				AFB6AEFCABBE97441CB3102B /* BinaryEncodingUtils.swift in Sources */,
-				048A4BE72E5CCCC300162C4A /* TransportConfig.swift in Sources */,
+
 				049BD3B22E51F319001A566B /* NostrTransport.swift in Sources */,
 				049BD3B32E51F319001A566B /* MessageRouter.swift in Sources */,
 				F455F011B3B648ADA233F998 /* BinaryProtocol.swift in Sources */,
