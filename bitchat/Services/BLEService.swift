@@ -2368,7 +2368,9 @@ extension BLEService: CBPeripheralDelegate {
         
         // Process directly on main thread to avoid deadlocks (matches original implementation)
         guard let packet = BinaryProtocol.decode(data) else {
-            SecureLogger.log("❌ Failed to decode notification packet, full data: \(data.map { String(format: "%02x", $0) }.joined(separator: " "))",
+            // Avoid dumping entire payload; log size and short prefix for diagnostics
+            let prefix = data.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
+            SecureLogger.log("❌ Failed to decode notification packet (len=\(data.count), prefix=\(prefix))",
                             category: SecureLogger.session, level: .error)
             return
         }
