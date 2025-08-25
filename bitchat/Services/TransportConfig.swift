@@ -57,4 +57,24 @@ enum TransportConfig {
     static let nostrGeohashInitialLookbackSeconds: TimeInterval = 3600
     static let nostrGeohashInitialLimit: Int = 200
     static let nostrGeoRelayCount: Int = 5
+
+    // Compression
+    static let compressionThresholdBytes: Int = 100
+
+    // Message deduplication
+    static let messageDedupMaxAgeSeconds: TimeInterval = 300
+    static let messageDedupMaxCount: Int = 1000
+
+    // Verification QR
+    static let verificationQRMaxAgeSeconds: TimeInterval = 5 * 60
+
+    // Nostr relay backoff
+    static let nostrRelayInitialBackoffSeconds: TimeInterval = 1.0
+    static let nostrRelayMaxBackoffSeconds: TimeInterval = 300.0
+    static let nostrRelayBackoffMultiplier: Double = 2.0
+    static let nostrRelayMaxReconnectAttempts: Int = 10
+    static let nostrRelayDefaultFetchLimit: Int = 100
+
+    // Geo relay directory
+    static let geoRelayFetchIntervalSeconds: TimeInterval = 60 * 60 * 24
 }

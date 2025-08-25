@@ -48,10 +48,10 @@ class NostrRelayManager: ObservableObject {
     private let messageQueueLock = NSLock()
     
     // Exponential backoff configuration
-    private let initialBackoffInterval: TimeInterval = 1.0  // Start with 1 second
-    private let maxBackoffInterval: TimeInterval = 300.0    // Max 5 minutes
-    private let backoffMultiplier: Double = 2.0            // Double each time
-    private let maxReconnectAttempts = 10                  // Stop after 10 attempts
+    private let initialBackoffInterval: TimeInterval = TransportConfig.nostrRelayInitialBackoffSeconds
+    private let maxBackoffInterval: TimeInterval = TransportConfig.nostrRelayMaxBackoffSeconds
+    private let backoffMultiplier: Double = TransportConfig.nostrRelayBackoffMultiplier
+    private let maxReconnectAttempts = TransportConfig.nostrRelayMaxReconnectAttempts
     
     // Reconnection timer
     private var reconnectionTimer: Timer?
@@ -568,7 +568,7 @@ struct NostrFilter: Encodable {
         filter.kinds = [1059] // Gift wrap kind
         filter.since = since?.timeIntervalSince1970.toInt()
         filter.tagFilters = ["p": [pubkey]]
-        filter.limit = 100 // Add a reasonable limit
+        filter.limit = TransportConfig.nostrRelayDefaultFetchLimit // reasonable limit
         return filter
     }
 
