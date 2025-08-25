@@ -349,7 +349,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     // PeerManager replaced by UnifiedPeerService
     private var processedNostrEvents = Set<String>()  // Simple deduplication
     private var processedNostrEventOrder: [String] = []
-    private let maxProcessedNostrEvents = 2000
+    private let maxProcessedNostrEvents = TransportConfig.uiProcessedNostrEventsCap
     private let userDefaults = UserDefaults.standard
     private let nicknameKey = "bitchat.nickname"
     // Location channel state (macOS supports manual geohash selection)
@@ -432,7 +432,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private var dynamicPublicFlushInterval: TimeInterval = TransportConfig.basePublicFlushInterval
     private var recentBatchSizes: [Int] = []
     @Published private(set) var isBatchingPublic: Bool = false
-    private let lateInsertThreshold: TimeInterval = 15.0
+    private let lateInsertThreshold: TimeInterval = TransportConfig.uiLateInsertThreshold
     
     // Track sent read receipts to avoid duplicates (persisted across launches)
     // Note: Persistence happens automatically in didSet, no lifecycle observers needed

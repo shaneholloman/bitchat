@@ -20,7 +20,7 @@ final class NostrTransport: Transport {
     }
     private var readQueue: [QueuedRead] = []
     private var isSendingReadAcks = false
-    private let readAckInterval: TimeInterval = 0.35 // ~3 per second
+    private let readAckInterval: TimeInterval = TransportConfig.nostrReadAckInterval
 
     var myPeerID: String { senderPeerID }
     var myNickname: String { "" }

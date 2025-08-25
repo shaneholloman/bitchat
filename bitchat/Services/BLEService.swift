@@ -1921,10 +1921,10 @@ final class BLEService: NSObject {
         }
         lastIsolatedAt = nil
         // Base threshold when connected
-        var threshold = -90
+        var threshold = TransportConfig.bleDynamicRSSIThresholdDefault
         // If we're at budget or queue is large, prefer closer peers
         let linkCount = peripherals.values.filter { $0.isConnected || $0.isConnecting }.count
-        if linkCount >= maxCentralLinks || connectionCandidates.count > 20 {
+        if linkCount >= maxCentralLinks || connectionCandidates.count > TransportConfig.bleConnectionCandidatesMax {
             threshold = -85
         }
         // If we have many recent timeouts, raise further
@@ -2666,7 +2666,7 @@ extension BLEService: CBPeripheralManagerDelegate {
                 }
             } else {
                 // If buffer grows suspiciously large, reset to avoid memory leak
-                if combined.count > 1_000_000 { // 1MB cap for safety
+                if combined.count > TransportConfig.blePendingWriteBufferCapBytes { // cap for safety
                     pendingWriteBuffers.removeValue(forKey: centralUUID)
                     SecureLogger.log("⚠️ Dropping oversized pending write buffer (\(combined.count) bytes) for central \(centralUUID)", category: SecureLogger.session, level: .warning)
                 }

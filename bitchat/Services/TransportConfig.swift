@@ -25,4 +25,16 @@ enum TransportConfig {
     static let bleDutyOnDuration: TimeInterval = 5.0
     static let bleDutyOffDuration: TimeInterval = 10.0
     static let bleAnnounceMinInterval: TimeInterval = 1.0
+
+    // BLE discovery/quality thresholds
+    static let bleDynamicRSSIThresholdDefault: Int = -90
+    static let bleConnectionCandidatesMax: Int = 20
+    static let blePendingWriteBufferCapBytes: Int = 1_000_000
+
+    // Nostr
+    static let nostrReadAckInterval: TimeInterval = 0.35 // ~3 per second
+
+    // UI thresholds
+    static let uiLateInsertThreshold: TimeInterval = 15.0
+    static let uiProcessedNostrEventsCap: Int = 2000
 }
