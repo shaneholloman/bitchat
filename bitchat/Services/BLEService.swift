@@ -697,19 +697,26 @@ final class BLEService: NSObject {
                 self.sendPrivateMessage(content, to: recipientID, messageID: finalMessageID)
             } else {
                 // Public broadcast
-                // Public message - logged at relay point for mesh debugging
-                let packet = BitchatPacket(
+                // Create packet with explicit fields so we can sign it
+                let basePacket = BitchatPacket(
                     type: MessageType.message.rawValue,
-                    ttl: self.messageTTL,
-                    senderID: self.myPeerID,
-                    payload: Data(content.utf8)
+                    senderID: Data(hexString: self.myPeerID) ?? Data(),
+                    recipientID: nil,
+                    timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
+                    payload: Data(content.utf8),
+                    signature: nil,
+                    ttl: self.messageTTL
                 )
+                guard let signedPacket = self.noiseService.signPacket(basePacket) else {
+                    SecureLogger.log("❌ Failed to sign public message", category: SecureLogger.security, level: .error)
+                    return
+                }
                 // Pre-mark our own broadcast as processed to avoid handling relayed self copy
-                let senderHex = packet.senderID.hexEncodedString()
-                let dedupID = "\(senderHex)-\(packet.timestamp)-\(packet.type)"
+                let senderHex = signedPacket.senderID.hexEncodedString()
+                let dedupID = "\(senderHex)-\(signedPacket.timestamp)-\(signedPacket.type)"
                 self.messageDeduplicator.markProcessed(dedupID)
                 // Call synchronously since we're already on background queue
-                self.broadcastPacket(packet)
+                self.broadcastPacket(signedPacket)
             }
         }
     }
@@ -1222,10 +1229,14 @@ final class BLEService: NSObject {
                 SecureLogger.log("⚠️ Duplicate packet ignored: \(messageID)", 
                                 category: SecureLogger.session, level: .debug)
             }
-            // Cancel any pending relay for this message (arrived via another neighbor)
-            collectionsQueue.async(flags: .barrier) { [weak self] in
-                if let task = self?.scheduledRelays.removeValue(forKey: messageID) {
-                    task.cancel()
+            // In sparse graphs (<=2 neighbors), keep the pending relay to ensure bridging.
+            // In denser graphs, cancel the pending relay to reduce redundant floods.
+            let connectedCount = collectionsQueue.sync { peers.values.filter { $0.isConnected }.count }
+            if connectedCount > 2 {
+                collectionsQueue.async(flags: .barrier) { [weak self] in
+                    if let task = self?.scheduledRelays.removeValue(forKey: messageID) {
+                        task.cancel()
+                    }
                 }
             }
             return // Duplicate ignored
@@ -1404,7 +1415,20 @@ final class BLEService: NSObject {
                 SecureLogger.log("🔄 Peer \(peerID) changed nickname: \(existingPeer?.nickname ?? "Unknown") -> \(announcement.nickname)", category: SecureLogger.session, level: .debug)
             }
         }
-        
+
+        // Persist cryptographic identity and signing key for robust offline verification
+        do {
+            // Derive fingerprint from Noise public key
+            let hash = SHA256.hash(data: announcement.noisePublicKey)
+            let fingerprint = hash.map { String(format: "%02x", $0) }.joined()
+            SecureIdentityStateManager.shared.upsertCryptographicIdentity(
+                fingerprint: fingerprint,
+                noisePublicKey: announcement.noisePublicKey,
+                signingPublicKey: announcement.signingPublicKey,
+                claimedNickname: announcement.nickname
+            )
+        }
+
         // Notify UI on main thread
         notifyUI { [weak self] in
             guard let self = self else { return }
@@ -1440,9 +1464,41 @@ final class BLEService: NSObject {
     private func handleMessage(_ packet: BitchatPacket, from peerID: String) {
         // Ignore self-origin public messages that may be seen again via relay
         if peerID == myPeerID { return }
-        
-        // Enforce: only accept public messages from verified peers we know
-        guard let info = peers[peerID], info.isVerifiedNickname else {
+
+        var accepted = false
+        var senderNickname: String = ""
+
+        if let info = peers[peerID], info.isVerifiedNickname {
+            // Known verified peer path
+            accepted = true
+            senderNickname = info.nickname
+            // Handle nickname collisions
+            let hasCollision = peers.values.contains { $0.isConnected && $0.nickname == info.nickname && $0.id != peerID } || (myNickname == info.nickname)
+            if hasCollision {
+                senderNickname += "#" + String(peerID.prefix(4))
+            }
+        } else {
+            // Fallback: verify signature using persisted signing key for this peerID's fingerprint prefix
+            if let signature = packet.signature, let packetData = packet.toBinaryDataForSigning() {
+                // Find candidate identities by peerID prefix (16 hex)
+                let candidates = SecureIdentityStateManager.shared.getCryptoIdentitiesByPeerIDPrefix(peerID)
+                for candidate in candidates {
+                    if let signingKey = candidate.signingPublicKey,
+                       noiseService.verifySignature(signature, for: packetData, publicKey: signingKey) {
+                        accepted = true
+                        // Prefer persisted social petname or claimed nickname
+                        if let social = SecureIdentityStateManager.shared.getSocialIdentity(for: candidate.fingerprint) {
+                            senderNickname = social.localPetname ?? social.claimedNickname
+                        } else {
+                            senderNickname = "anon" + String(peerID.prefix(4))
+                        }
+                        break
+                    }
+                }
+            }
+        }
+
+        guard accepted else {
             SecureLogger.log("🚫 Dropping public message from unverified or unknown peer \(peerID.prefix(8))…", category: SecureLogger.security, level: .warning)
             return
         }
@@ -1451,17 +1507,9 @@ final class BLEService: NSObject {
             SecureLogger.log("❌ Failed to decode message payload as UTF-8", category: SecureLogger.session, level: .error)
             return
         }
-        
-        // Resolve display nickname; if collisions exist, append short peerID suffix
-        var senderNickname = info.nickname
-        // Treat a collision if another connected peer shares the nickname OR our own nickname matches
-        let hasCollision = peers.values.contains { $0.isConnected && $0.nickname == info.nickname && $0.id != peerID } || (myNickname == info.nickname)
-        if hasCollision {
-            senderNickname += "#" + String(peerID.prefix(4))
-        }
 
         SecureLogger.log("💬 [\(senderNickname)] TTL:\(packet.ttl): \(String(content.prefix(50)))\(content.count > 50 ? "..." : "")", category: SecureLogger.session, level: .debug)
-        
+
         let ts = Date(timeIntervalSince1970: Double(packet.timestamp) / 1000)
         notifyUI { [weak self] in
             self?.delegate?.didReceivePublicMessage(from: peerID, nickname: senderNickname, content: content, timestamp: ts)
@@ -2137,6 +2185,11 @@ func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeriph
         
         SecureLogger.log("📱 Disconnect: \(peerID ?? peripheralID)\(error != nil ? " (\(error!.localizedDescription))" : "")",
                         category: SecureLogger.session, level: .debug)
+
+        // If disconnect carried an error (often timeout), apply short backoff to avoid thrash
+        if error != nil {
+            recentConnectTimeouts[peripheralID] = Date()
+        }
         
         // Clean up references
         peripherals.removeValue(forKey: peripheralID)

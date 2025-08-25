@@ -48,9 +48,10 @@ struct RelayController {
         let newTTL = clamped &- 1
 
         // Wider jitter window to allow duplicate suppression to win more often
+        // For sparse graphs (<=2), relay quickly to avoid cancellation races
         let delayMs: Int
         switch degree {
-        case 0...2: delayMs = Int.random(in: 40...100)
+        case 0...2: delayMs = Int.random(in: 10...40)
         case 3...5: delayMs = Int.random(in: 60...150)
         case 6...9: delayMs = Int.random(in: 80...180)
         default:    delayMs = Int.random(in: 100...220)
