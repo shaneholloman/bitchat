@@ -3617,26 +3617,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         return unifiedPeerService.getFingerprint(for: peerID)
     }
     
-    private func getFingerprint_old(for peerID: String) -> String? {
-        // Remove debug logging to prevent console spam during view updates
-        
-        // First try to get fingerprint from mesh service's peer ID rotation mapping
-        if let fingerprint = meshService.getFingerprint(for: peerID) {
-            return fingerprint
-        }
-        
-        // Check noise service (direct Noise session fingerprint)
-        if let fingerprint = meshService.getNoiseService().getPeerFingerprint(peerID) {
-            return fingerprint
-        }
-        
-        // Last resort: check local mapping
-        if let fingerprint = peerIDToPublicKeyFingerprint[peerID] {
-            return fingerprint
-        }
-        
-        return nil
-    }
+    // (legacy getFingerprint_old removed; UnifiedPeerService is the source of truth)
+
     
     // Helper to resolve nickname for a peer ID through various sources
     @MainActor
