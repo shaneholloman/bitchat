@@ -430,7 +430,7 @@ final class BLEService: NSObject {
         
         // Send initial announce after services are ready
         // Use longer delay to avoid conflicts with other announces
-        messageQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+        messageQueue.asyncAfter(deadline: .now() + TransportConfig.bleInitialAnnounceDelaySeconds) { [weak self] in
             self?.sendAnnounce(forceSend: true)
         }
     }
@@ -2077,7 +2077,7 @@ extension BLEService: CBCentralManagerDelegate {
         
         // Set a timeout for the connection attempt (slightly longer for reliability)
         // Use BLE queue to mutate BLE-related state consistently
-        bleQueue.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+        bleQueue.asyncAfter(deadline: .now() + TransportConfig.bleConnectTimeoutSeconds) { [weak self] in
             guard let self = self,
                   let state = self.peripherals[peripheralID],
                   state.isConnecting && !state.isConnected else { return }
@@ -2149,7 +2149,7 @@ func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeriph
         if centralManager?.state == .poweredOn {
             // Stop and restart scanning to ensure we get fresh discovery events
             centralManager?.stopScan()
-            bleQueue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            bleQueue.asyncAfter(deadline: .now() + TransportConfig.bleRestartScanDelaySeconds) { [weak self] in
                 self?.startScanning()
             }
         }
@@ -2347,7 +2347,7 @@ extension BLEService: CBPeripheralDelegate {
             SecureLogger.log("🔔 Subscribed to notifications from \(peripheral.name ?? "Unknown")", category: SecureLogger.session, level: .debug)
             
             // Send announce after subscription is confirmed (force send for new connection)
-            messageQueue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            messageQueue.asyncAfter(deadline: .now() + TransportConfig.blePostSubscribeAnnounceDelaySeconds) { [weak self] in
                 self?.sendAnnounce(forceSend: true)
             }
         } else {
@@ -2509,7 +2509,7 @@ extension BLEService: CBPeripheralManagerDelegate {
         SecureLogger.log("📥 Central subscribed: \(central.identifier.uuidString)", category: SecureLogger.session, level: .debug)
         subscribedCentrals.append(central)
         // Send announce to the newly subscribed central after a small delay to avoid overwhelming
-        messageQueue.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+        messageQueue.asyncAfter(deadline: .now() + TransportConfig.blePostAnnounceDelaySeconds) { [weak self] in
             self?.sendAnnounce(forceSend: true)
         }
     }
