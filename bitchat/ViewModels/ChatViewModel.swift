@@ -201,7 +201,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     // Persistent recent content map (LRU) to speed near-duplicate checks
     private var contentLRUMap: [String: Date] = [:]
     private var contentLRUOrder: [String] = []
-    private let contentLRUCap = 2000
+    private let contentLRUCap = TransportConfig.contentLRUCap
     private func recordContentKey(_ key: String, timestamp: Date) {
         if contentLRUMap[key] == nil { contentLRUOrder.append(key) }
         contentLRUMap[key] = timestamp
@@ -219,13 +219,13 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     
     @Published var messages: [BitchatMessage] = []
     @Published var currentColorScheme: ColorScheme = .light
-    private let maxMessages = 1337 // Maximum messages before oldest are removed
+    private let maxMessages = TransportConfig.meshTimelineCap // Maximum messages before oldest are removed
     @Published var isConnected = false
     private var hasNotifiedNetworkAvailable = false
     private var recentlySeenPeers: Set<String> = []
     private var lastNetworkNotificationTime = Date.distantPast
     private var networkResetTimer: Timer? = nil
-    private let networkResetGraceSeconds: TimeInterval = 600 // 10 minutes; avoid refiring on short drops/reconnects
+    private let networkResetGraceSeconds: TimeInterval = TransportConfig.networkResetGraceSeconds // avoid refiring on short drops/reconnects
     @Published var nickname: String = "" {
         didSet {
             // Trim whitespace whenever nickname is set
@@ -386,10 +386,10 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     // Messages are naturally ephemeral - no persistent storage
     // Persist mesh public timeline across channel switches
     private var meshTimeline: [BitchatMessage] = []
-    private let meshTimelineCap = 1337
+    private let meshTimelineCap = TransportConfig.meshTimelineCap
     // Persist per-geohash public timelines across switches
     private var geoTimelines: [String: [BitchatMessage]] = [:] // geohash -> messages
-    private let geoTimelineCap = 1337
+    private let geoTimelineCap = TransportConfig.geoTimelineCap
     // Channel activity tracking for background nudges
     private var lastPublicActivityAt: [String: Date] = [:]   // channelKey -> last activity time
     private var lastPublicActivityNotifyAt: [String: Date] = [:]
@@ -428,8 +428,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     // Buffer incoming public messages and flush in small batches to reduce UI invalidations
     private var publicBuffer: [BitchatMessage] = []
     private var publicBufferTimer: Timer? = nil
-    private let basePublicFlushInterval: TimeInterval = 0.08 // ~12.5 fps batching
-    private var dynamicPublicFlushInterval: TimeInterval = 0.08
+    private let basePublicFlushInterval: TimeInterval = TransportConfig.basePublicFlushInterval
+    private var dynamicPublicFlushInterval: TimeInterval = TransportConfig.basePublicFlushInterval
     private var recentBatchSizes: [Int] = []
     @Published private(set) var isBatchingPublic: Bool = false
     private let lateInsertThreshold: TimeInterval = 15.0
@@ -441,21 +441,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             // Only persist if there are changes
             guard oldValue != sentReadReceipts else { return }
             
-            // Persist to UserDefaults whenever it changes
+            // Persist to UserDefaults whenever it changes (no manual synchronize/verify re-read)
             if let data = try? JSONEncoder().encode(Array(sentReadReceipts)) {
                 UserDefaults.standard.set(data, forKey: "sentReadReceipts")
-                // Force synchronization for immediate persistence (ensures data is written to disk)
-                UserDefaults.standard.synchronize()
-                
-                // Verify persistence by re-reading
-                if let verifyData = UserDefaults.standard.data(forKey: "sentReadReceipts"),
-                   let _ = try? JSONDecoder().decode([String].self, from: verifyData) {
-                    // Only log errors, not successful persistence
-                    // Successfully persisted
-                } else {
-                    SecureLogger.log("⚠️ Failed to verify persistence of read receipts",
-                                    category: SecureLogger.session, level: .error)
-                }
             } else {
                 SecureLogger.log("❌ Failed to encode read receipts for persistence",
                                 category: SecureLogger.session, level: .error)

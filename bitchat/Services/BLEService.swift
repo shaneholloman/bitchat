@@ -22,12 +22,12 @@ final class BLEService: NSObject {
     static let characteristicUUID = CBUUID(string: "A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D")
     
     // Default per-fragment chunk size when link limits are unknown
-    private let defaultFragmentSize = 469 // ~512 MTU minus protocol overhead
-    private let maxMessageLength = 10_000
-    private let messageTTL: UInt8 = 7
+    private let defaultFragmentSize = TransportConfig.bleDefaultFragmentSize
+    private let maxMessageLength = InputValidator.Limits.maxMessageLength
+    private let messageTTL: UInt8 = TransportConfig.messageTTLDefault
     // Flood/battery controls
-    private let maxInFlightAssemblies = 128 // cap concurrent fragment assemblies
-    private let highDegreeThreshold = 6 // for adaptive TTL/probabilistic relays
+    private let maxInFlightAssemblies = TransportConfig.bleMaxInFlightAssemblies // cap concurrent fragment assemblies
+    private let highDegreeThreshold = TransportConfig.bleHighDegreeThreshold // for adaptive TTL/probabilistic relays
     
     // MARK: - Core State (5 Essential Collections)
     
@@ -257,20 +257,15 @@ final class BLEService: NSObject {
 
     func currentPeerSnapshots() -> [TransportPeerSnapshot] {
         collectionsQueue.sync {
-            // Compute nickname collision counts for connected peers
-            let connected = peers.values.filter { $0.isConnected }
-            var counts: [String: Int] = [:]
-            for p in connected { counts[p.nickname, default: 0] += 1 }
-            // Include our own nickname in collision counts so remote matching ours gets suffixed
-            counts[myNickname, default: 0] += 1
-            return peers.values.map { info in
-                var display = info.nickname
-                if info.isConnected, (counts[info.nickname] ?? 0) > 1 {
-                    display += "#" + String(info.id.prefix(4))
-                }
-                return TransportPeerSnapshot(
+            let snapshot = Array(peers.values)
+            let resolvedNames = PeerDisplayNameResolver.resolve(
+                snapshot.map { ($0.id, $0.nickname, $0.isConnected) },
+                selfNickname: myNickname
+            )
+            return snapshot.map { info in
+                TransportPeerSnapshot(
                     id: info.id,
-                    nickname: display,
+                    nickname: resolvedNames[info.id] ?? info.nickname,
                     isConnected: info.isConnected,
                     noisePublicKey: info.noisePublicKey,
                     lastSeen: info.lastSeen
@@ -514,22 +509,9 @@ final class BLEService: NSObject {
 
     func getPeerNicknames() -> [String: String] {
         return collectionsQueue.sync {
-            // Only connected peers
             let connected = peers.filter { $0.value.isConnected }
-            // Count collisions by nickname (include our own nickname)
-            var counts: [String: Int] = [:]
-            for (_, info) in connected { counts[info.nickname, default: 0] += 1 }
-            counts[myNickname, default: 0] += 1
-            // Build map with suffix for collisions
-            var result: [String: String] = [:]
-            for (id, info) in connected {
-                var name = info.nickname
-                if (counts[info.nickname] ?? 0) > 1 {
-                    name += "#" + String(id.prefix(4))
-                }
-                result[id] = name
-            }
-            return result
+            let tuples = connected.map { ($0.key, $0.value.nickname, true) }
+            return PeerDisplayNameResolver.resolve(tuples, selfNickname: myNickname)
         }
     }
     
