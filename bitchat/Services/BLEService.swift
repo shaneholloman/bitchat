@@ -70,7 +70,7 @@ final class BLEService: NSObject {
     
     // Simple announce throttling
     private var lastAnnounceSent = Date.distantPast
-    private let announceMinInterval: TimeInterval = 1.0
+    private let announceMinInterval: TimeInterval = TransportConfig.bleAnnounceMinInterval
     
     // Application state tracking (thread-safe)
     #if os(iOS)
@@ -129,8 +129,8 @@ final class BLEService: NSObject {
     private var maintenanceCounter = 0  // Track maintenance cycles
 
     // MARK: - Connection budget & scheduling (central role)
-    private let maxCentralLinks = 6
-    private let connectRateLimitInterval: TimeInterval = 0.5
+    private let maxCentralLinks = TransportConfig.bleMaxCentralLinks
+    private let connectRateLimitInterval: TimeInterval = TransportConfig.bleConnectRateLimitInterval
     private var lastGlobalConnectAttempt: Date = .distantPast
     private struct ConnectionCandidate {
         let peripheral: CBPeripheral
@@ -147,8 +147,8 @@ final class BLEService: NSObject {
     // MARK: - Adaptive scanning duty-cycle
     private var scanDutyTimer: DispatchSourceTimer?
     private var dutyEnabled: Bool = true
-    private var dutyOnDuration: TimeInterval = 5
-    private var dutyOffDuration: TimeInterval = 10
+    private var dutyOnDuration: TimeInterval = TransportConfig.bleDutyOnDuration
+    private var dutyOffDuration: TimeInterval = TransportConfig.bleDutyOffDuration
     private var dutyActive: Bool = false
 
     // MARK: - Link capability snapshots (thread-safe via bleQueue)

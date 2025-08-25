@@ -18,5 +18,11 @@ enum TransportConfig {
     // Timers
     static let networkResetGraceSeconds: TimeInterval = 600 // 10 minutes
     static let basePublicFlushInterval: TimeInterval = 0.08  // ~12.5 fps batching
-}
 
+    // BLE duty/announce/connect
+    static let bleConnectRateLimitInterval: TimeInterval = 0.5
+    static let bleMaxCentralLinks: Int = 6
+    static let bleDutyOnDuration: TimeInterval = 5.0
+    static let bleDutyOffDuration: TimeInterval = 10.0
+    static let bleAnnounceMinInterval: TimeInterval = 1.0
+}
