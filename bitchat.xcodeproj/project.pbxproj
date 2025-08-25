@@ -58,8 +58,6 @@
 		0AE840940F21AFC07C226636 /* PrivateChatE2ETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A262EDDC04B7D7B5E31F321 /* PrivateChatE2ETests.swift */; };
 		0B6F25559A21F8C69C8357C6 /* BinaryProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B3CC6FA298729906109F61B /* BinaryProtocolTests.swift */; };
 		10E68BB889356219189E38EC /* BitchatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF625BB3AD919322C01A46B2 /* BitchatApp.swift */; };
-		1234567890ABCDEFFEDCBA11 /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEFFEDCBA01 /* TransportConfig.swift */; };
-		1234567890ABCDEFFEDCBA12 /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEFFEDCBA01 /* TransportConfig.swift */; };
 		1234567890ABCDEFFEDCBA13 /* PeerDisplayNameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEFFEDCBA02 /* PeerDisplayNameResolver.swift */; };
 		1234567890ABCDEFFEDCBA14 /* PeerDisplayNameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEFFEDCBA02 /* PeerDisplayNameResolver.swift */; };
 		132DF1E24B4E9C7DCDAD4376 /* FingerprintView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9195CDC7EB236AFBC9A4D41A /* FingerprintView.swift */; };
@@ -221,7 +219,6 @@
 		05BA20BC0F123F1507C5C247 /* IdentityModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityModels.swift; sourceTree = "<group>"; };
 		0B3CC6FA298729906109F61B /* BinaryProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BinaryProtocolTests.swift; sourceTree = "<group>"; };
 		11186E29A064E8D210880E1B /* BitchatPeer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitchatPeer.swift; sourceTree = "<group>"; };
-		1234567890ABCDEFFEDCBA01 /* TransportConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportConfig.swift; sourceTree = "<group>"; };
 		1234567890ABCDEFFEDCBA02 /* PeerDisplayNameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerDisplayNameResolver.swift; sourceTree = "<group>"; };
 		136696FC4436A02D98CE6A77 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
 		229F17B68CFF7AB1BC91C847 /* BitchatProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitchatProtocol.swift; sourceTree = "<group>"; };
@@ -312,14 +309,6 @@
 				047502AE2E55E8450083520F /* InputValidatorTests.swift */,
 			);
 			path = Utils;
-			sourceTree = "<group>";
-		};
-		048A4BE52E5CCC5C00162C4A /* Recovered References */ = {
-			isa = PBXGroup;
-			children = (
-				1234567890ABCDEFFEDCBA01 /* TransportConfig.swift */,
-			);
-			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 		0575DCBD15C7C719ADDCB67E /* Models */ = {
@@ -752,8 +741,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1234567890ABCDEFFEDCBA11 /* TransportConfig.swift in Sources */,
-				1234567890ABCDEFFEDCBA13 /* PeerDisplayNameResolver.swift in Sources */,
+                048A4BE72E5CCCC300162C4A /* TransportConfig.swift in Sources */,
+                1234567890ABCDEFFEDCBA13 /* PeerDisplayNameResolver.swift in Sources */,
 				AA77BB12CC22DD33EE44FF56 /* VerificationService.swift in Sources */,
 				AA77BB15CC22DD33EE44FF59 /* VerificationViews.swift in Sources */,
 				A1B2C3D54E5F60718293A4B6 /* XChaCha20Poly1305Compat.swift in Sources */,
@@ -812,8 +801,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1234567890ABCDEFFEDCBA12 /* TransportConfig.swift in Sources */,
-				1234567890ABCDEFFEDCBA14 /* PeerDisplayNameResolver.swift in Sources */,
+                048A4BE82E5CCCC300162C4A /* TransportConfig.swift in Sources */,
+                1234567890ABCDEFFEDCBA14 /* PeerDisplayNameResolver.swift in Sources */,
 				AA77BB11CC22DD33EE44FF55 /* VerificationService.swift in Sources */,
 				AA77BB14CC22DD33EE44FF58 /* VerificationViews.swift in Sources */,
 				A1B2C3D44E5F60718293A4B5 /* XChaCha20Poly1305Compat.swift in Sources */,
