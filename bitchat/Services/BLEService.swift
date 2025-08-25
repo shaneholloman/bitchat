@@ -2262,6 +2262,27 @@ extension BLEService {
 // Test-only helper to inject packets into the receive pipeline
 extension BLEService {
     func _test_handlePacket(_ packet: BitchatPacket, fromPeerID: String) {
+        // Ensure the synthetic peer is known and marked verified for public-message tests
+        let normalizedID = packet.senderID.hexEncodedString()
+        collectionsQueue.sync(flags: .barrier) {
+            if peers[normalizedID] == nil {
+                peers[normalizedID] = PeerInfo(
+                    id: normalizedID,
+                    nickname: "TestPeer_\(fromPeerID.prefix(4))",
+                    isConnected: true,
+                    noisePublicKey: packet.senderID,
+                    signingPublicKey: nil,
+                    isVerifiedNickname: true,
+                    lastSeen: Date()
+                )
+            } else {
+                var p = peers[normalizedID]!
+                p.isConnected = true
+                p.isVerifiedNickname = true
+                p.lastSeen = Date()
+                peers[normalizedID] = p
+            }
+        }
         if DispatchQueue.getSpecific(key: messageQueueKey) != nil {
             handleReceivedPacket(packet, from: fromPeerID)
         } else {
