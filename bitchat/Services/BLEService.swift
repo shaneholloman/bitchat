@@ -142,7 +142,7 @@ final class BLEService: NSObject {
     private var connectionCandidates: [ConnectionCandidate] = []
     private var failureCounts: [String: Int] = [:] // Peripheral UUID -> failures
     private var lastIsolatedAt: Date? = nil
-    private var dynamicRSSIThreshold: Int = -90
+    private var dynamicRSSIThreshold: Int = TransportConfig.bleDynamicRSSIThresholdDefault
 
     // MARK: - Adaptive scanning duty-cycle
     private var scanDutyTimer: DispatchSourceTimer?
@@ -469,7 +469,7 @@ final class BLEService: NSObject {
         }
         
         // Give leave message a moment to send
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: TransportConfig.bleThreadSleepWriteShortDelaySeconds)
         
         // Clear pending notifications
         collectionsQueue.sync(flags: .barrier) {
@@ -965,7 +965,7 @@ final class BLEService: NSObject {
                 if success { sentEncrypted = true; break }
                 collectionsQueue.async(flags: .barrier) { [weak self] in
                     guard let self = self else { return }
-                    if self.pendingNotifications.count < 20 {
+                    if self.pendingNotifications.count < TransportConfig.blePendingNotificationsCapCount {
                         self.pendingNotifications.append((data: data, centrals: [central]))
                         SecureLogger.log("📋 Queued encrypted packet for retry (notification queue full)", category: SecureLogger.session, level: .debug)
                     }
@@ -1096,7 +1096,7 @@ final class BLEService: NSObject {
                 guard let self = self, let c = self.centralManager, c.state == .poweredOn else { return }
                 if c.isScanning { c.stopScan() }
                 // Resume scanning after we expect last fragment to be sent
-                let expectedMs = min(2000, totalFragments * 8) // ~8ms per fragment
+            let expectedMs = min(TransportConfig.bleExpectedWriteMaxMs, totalFragments * TransportConfig.bleExpectedWritePerFragmentMs) // ~8ms per fragment
                 self.bleQueue.asyncAfter(deadline: .now() + .milliseconds(expectedMs)) { [weak self] in
                     self?.startScanning()
                 }
@@ -1127,7 +1127,7 @@ final class BLEService: NSObject {
                 ttl: packet.ttl
             )
             // Pace fragments with small jitter to avoid bursts
-            let delayMs = index * 6 // ~6ms spacing per fragment
+            let delayMs = index * TransportConfig.bleFragmentSpacingMs // ~6ms spacing per fragment
             messageQueue.asyncAfter(deadline: .now() + .milliseconds(delayMs)) { [weak self] in
                 self?.broadcastPacket(fragmentPacket)
             }
@@ -1239,10 +1239,10 @@ final class BLEService: NSObject {
             guard let self = self else { return }
             let now = Date()
             self.recentPacketTimestamps.append(now)
-            // keep last 100 timestamps within 30s window
-            let cutoff = now.addingTimeInterval(-30)
-            if self.recentPacketTimestamps.count > 100 {
-                self.recentPacketTimestamps.removeFirst(self.recentPacketTimestamps.count - 100)
+            // keep last N timestamps within window
+            let cutoff = now.addingTimeInterval(-TransportConfig.bleRecentPacketWindowSeconds)
+            if self.recentPacketTimestamps.count > TransportConfig.bleRecentPacketWindowMaxCount {
+                self.recentPacketTimestamps.removeFirst(self.recentPacketTimestamps.count - TransportConfig.bleRecentPacketWindowMaxCount)
             }
             self.recentPacketTimestamps.removeAll { $0 < cutoff }
         }
@@ -1606,7 +1606,7 @@ final class BLEService: NSObject {
         let timeSinceLastAnnounce = now.timeIntervalSince(lastAnnounceSent)
         
         // Even forced sends should respect a minimum interval to avoid overwhelming BLE
-        let minInterval = forceSend ? 0.2 : announceMinInterval
+        let minInterval = forceSend ? TransportConfig.bleForceAnnounceMinIntervalSeconds : announceMinInterval
         
         if timeSinceLastAnnounce < minInterval {
             // Skipping announce (rate limited)
@@ -1737,12 +1737,14 @@ final class BLEService: NSObject {
         let connectedCount = collectionsQueue.sync { peers.values.filter { $0.isConnected }.count }
         let elapsed = now.timeIntervalSince(lastAnnounceSent)
         if connectedCount == 0 {
-            // Discovery mode: keep frequent announces (~10s)
-            if elapsed >= 10.0 { sendAnnounce(forceSend: true) }
+            // Discovery mode: keep frequent announces
+            if elapsed >= TransportConfig.bleAnnounceIntervalSeconds { sendAnnounce(forceSend: true) }
         } else {
             // Connected mode: announce less often; much less in dense networks
-            let base = connectedCount >= 6 ? 90.0 : 45.0
-            let jitter = connectedCount >= 6 ? 20.0 : 7.5
+            let base = connectedCount >= TransportConfig.bleHighDegreeThreshold ?
+                TransportConfig.bleConnectedAnnounceBaseSecondsDense : TransportConfig.bleConnectedAnnounceBaseSecondsSparse
+            let jitter = connectedCount >= TransportConfig.bleHighDegreeThreshold ?
+                TransportConfig.bleConnectedAnnounceJitterDense : TransportConfig.bleConnectedAnnounceJitterSparse
             let target = base + Double.random(in: -jitter...jitter)
             if elapsed >= target { sendAnnounce(forceSend: true) }
         }
@@ -1783,7 +1785,7 @@ final class BLEService: NSObject {
         
         collectionsQueue.sync(flags: .barrier) {
             for (peerID, peer) in peers {
-                if peer.isConnected && now.timeIntervalSince(peer.lastSeen) > 20 {
+                if peer.isConnected && now.timeIntervalSince(peer.lastSeen) > TransportConfig.blePeerInactivityTimeoutSeconds {
                     // Check if we still have an active BLE connection to this peer
                     let hasPeripheralConnection = peerToPeripheralUUID[peerID] != nil &&
                                                  peripherals[peerToPeripheralUUID[peerID]!]?.isConnected == true
@@ -1823,9 +1825,9 @@ final class BLEService: NSObject {
         // Clean old processed messages efficiently
         messageDeduplicator.cleanup()
         
-        // Clean old fragments (> 30 seconds old)
+        // Clean old fragments (> configured seconds old)
         collectionsQueue.sync(flags: .barrier) {
-            let cutoff = now.addingTimeInterval(-30)
+            let cutoff = now.addingTimeInterval(-TransportConfig.bleFragmentLifetimeSeconds)
             let oldFragments = fragmentMetadata.filter { $0.value.timestamp < cutoff }.map { $0.key }
             for fragmentID in oldFragments {
                 incomingFragments.removeValue(forKey: fragmentID)
@@ -1833,8 +1835,8 @@ final class BLEService: NSObject {
             }
         }
 
-        // Clean old connection timeout backoff entries (> 2 minutes)
-        let timeoutCutoff = now.addingTimeInterval(-120)
+        // Clean old connection timeout backoff entries (> window)
+        let timeoutCutoff = now.addingTimeInterval(-TransportConfig.bleConnectTimeoutBackoffWindowSeconds)
         recentConnectTimeouts = recentConnectTimeouts.filter { $0.value >= timeoutCutoff }
 
         // Clean up stale scheduled relays that somehow persisted (> 2s)
@@ -1848,10 +1850,10 @@ final class BLEService: NSObject {
             }
         }
 
-        // Clean ingress link records older than 3 seconds
+        // Clean ingress link records older than configured seconds
         collectionsQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
-            let cutoff = now.addingTimeInterval(-3)
+            let cutoff = now.addingTimeInterval(-TransportConfig.bleIngressRecordLifetimeSeconds)
             if !self.ingressByMessageID.isEmpty {
                 self.ingressByMessageID = self.ingressByMessageID.filter { $0.value.timestamp >= cutoff }
             }
@@ -1875,12 +1877,12 @@ final class BLEService: NSObject {
                 if !central.isScanning { startScanning() }
                 dutyActive = true
                 // Adjust duty cycle under dense networks to save battery
-                if connectedCount >= 6 {
-                    dutyOnDuration = 3
-                    dutyOffDuration = 15
+                if connectedCount >= TransportConfig.bleHighDegreeThreshold {
+                    dutyOnDuration = TransportConfig.bleDutyOnDurationDense
+                    dutyOffDuration = TransportConfig.bleDutyOffDurationDense
                 } else {
-                    dutyOnDuration = 5
-                    dutyOffDuration = 10
+                    dutyOnDuration = TransportConfig.bleDutyOnDuration
+                    dutyOffDuration = TransportConfig.bleDutyOffDuration
                 }
                 t.schedule(deadline: .now() + dutyOnDuration, repeating: dutyOnDuration + dutyOffDuration)
                 t.setEventHandler { [weak self] in
@@ -1986,7 +1988,9 @@ extension BLEService: CBCentralManagerDelegate {
                 if a.rssi != b.rssi { return a.rssi > b.rssi }
                 return a.discoveredAt < b.discoveredAt
             }
-            if connectionCandidates.count > 100 { connectionCandidates.removeLast(connectionCandidates.count - 100) }
+            if connectionCandidates.count > TransportConfig.bleConnectionCandidatesMax {
+                connectionCandidates.removeLast(connectionCandidates.count - TransportConfig.bleConnectionCandidatesMax)
+            }
             return
         }
         
@@ -2000,7 +2004,9 @@ extension BLEService: CBCentralManagerDelegate {
                 if a.rssi != b.rssi { return a.rssi > b.rssi }
                 return a.discoveredAt < b.discoveredAt
             }
-            if connectionCandidates.count > 100 { connectionCandidates.removeLast(connectionCandidates.count - 100) }
+            if connectionCandidates.count > TransportConfig.bleConnectionCandidatesMax {
+                connectionCandidates.removeLast(connectionCandidates.count - TransportConfig.bleConnectionCandidatesMax)
+            }
             return
         }
 
