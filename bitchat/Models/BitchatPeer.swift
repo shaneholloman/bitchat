@@ -89,4 +89,4 @@ struct BitchatPeer: Identifiable, Equatable {
     }
 }
 
-// (Legacy PeerManager removed; superseded by UnifiedPeerService.)
+//

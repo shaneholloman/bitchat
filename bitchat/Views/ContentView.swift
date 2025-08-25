@@ -13,9 +13,9 @@ import UIKit
 
 // MARK: - Supporting Types
 
-// (PeerDisplayData removed; unused.)
+//
 
-// (Link previews removed; URLs are now clickable inline)
+//
 
 // MARK: - Main Content View
 
@@ -1372,7 +1372,7 @@ private struct PaymentChipView: View {
     }
 }
 
-// (MessageContentView removed; unused.)
+//
 
 // Delivery status indicator view
 struct DeliveryStatusView: View {

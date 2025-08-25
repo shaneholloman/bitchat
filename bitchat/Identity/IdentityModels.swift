@@ -173,7 +173,7 @@ struct PendingActions {
     var setPetname: String?
 }
 
-// (PrivacySettings, ConflictResolution, PeerUIState, ConnectionQuality removed; unused.)
+//
 
 // MARK: - Migration Support
-// Removed LegacyFavorite - no longer needed
+//
