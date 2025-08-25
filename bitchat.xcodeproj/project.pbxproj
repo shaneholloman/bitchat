@@ -147,6 +147,10 @@
 		AA77BB12CC22DD33EE44FF56 /* VerificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA77BB10CC22DD33EE44FF55 /* VerificationService.swift */; };
 		AA77BB14CC22DD33EE44FF58 /* VerificationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA77BB13CC22DD33EE44FF57 /* VerificationViews.swift */; };
 		AA77BB15CC22DD33EE44FF59 /* VerificationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA77BB13CC22DD33EE44FF57 /* VerificationViews.swift */; };
+        1234567890ABCDEFFEDCBA11 /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEFFEDCBA01 /* TransportConfig.swift */; };
+        1234567890ABCDEFFEDCBA12 /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEFFEDCBA01 /* TransportConfig.swift */; };
+        1234567890ABCDEFFEDCBA13 /* PeerDisplayNameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEFFEDCBA02 /* PeerDisplayNameResolver.swift */; };
+        1234567890ABCDEFFEDCBA14 /* PeerDisplayNameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1234567890ABCDEFFEDCBA02 /* PeerDisplayNameResolver.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -269,6 +273,8 @@
 		A1B2C3D44E5F60718293A4B4 /* XChaCha20Poly1305Compat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XChaCha20Poly1305Compat.swift; sourceTree = "<group>"; };
 		AA77BB10CC22DD33EE44FF55 /* VerificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationService.swift; sourceTree = "<group>"; };
 		AA77BB13CC22DD33EE44FF57 /* VerificationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationViews.swift; sourceTree = "<group>"; };
+        1234567890ABCDEFFEDCBA01 /* TransportConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportConfig.swift; sourceTree = "<group>"; };
+        1234567890ABCDEFFEDCBA02 /* PeerDisplayNameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerDisplayNameResolver.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -405,6 +411,7 @@
 		9A78348821A7D3374607D4E3 /* Utils */ = {
 			isa = PBXGroup;
 			children = (
+				1234567890ABCDEFFEDCBA02 /* PeerDisplayNameResolver.swift */,
 				049BD3AA2E51E38E001A566B /* PeerIDResolver.swift */,
 				049BD3A42E51DC0E001A566B /* MessageDeduplicator.swift */,
 				32F149C43D1915831B60FE09 /* CompressionUtil.swift */,
@@ -735,6 +742,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                1234567890ABCDEFFEDCBA11 /* TransportConfig.swift in Sources */,
+                1234567890ABCDEFFEDCBA13 /* PeerDisplayNameResolver.swift in Sources */,
 				AA77BB12CC22DD33EE44FF56 /* VerificationService.swift in Sources */,
 				AA77BB15CC22DD33EE44FF59 /* VerificationViews.swift in Sources */,
 				A1B2C3D54E5F60718293A4B6 /* XChaCha20Poly1305Compat.swift in Sources */,
@@ -793,6 +802,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                1234567890ABCDEFFEDCBA12 /* TransportConfig.swift in Sources */,
+                1234567890ABCDEFFEDCBA14 /* PeerDisplayNameResolver.swift in Sources */,
 				AA77BB11CC22DD33EE44FF55 /* VerificationService.swift in Sources */,
 				AA77BB14CC22DD33EE44FF58 /* VerificationViews.swift in Sources */,
 				A1B2C3D44E5F60718293A4B5 /* XChaCha20Poly1305Compat.swift in Sources */,
