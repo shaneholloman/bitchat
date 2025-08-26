@@ -143,6 +143,14 @@ enum TransportConfig {
     // Store-and-forward for directed packets at relays
     static let bleDirectedSpoolWindowSeconds: TimeInterval = 15.0
 
+    // Log/UI debounce windows
+    static let bleDisconnectNotifyDebounceSeconds: TimeInterval = 1.5
+    static let bleReconnectLogDebounceSeconds: TimeInterval = 2.0
+
+    // Weak-link cooldown after connection timeouts
+    static let bleWeakLinkCooldownSeconds: TimeInterval = 30.0
+    static let bleWeakLinkRSSICutoff: Int = -90
+
     // Content hashing / formatting
     static let contentKeyPrefixLength: Int = 256
     static let uiLongMessageLengthThreshold: Int = 2000

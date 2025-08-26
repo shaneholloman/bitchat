@@ -128,9 +128,13 @@ final class BLEService: NSObject {
 
     // Backpressure-aware write queue per peripheral
     private var pendingPeripheralWrites: [String: [Data]] = [:]
+    // Debounce duplicate disconnect notifies
+    private var recentDisconnectNotifies: [String: Date] = [:]
     // Store-and-forward for directed messages when we have no links
     // Keyed by recipient short peerID -> messageID -> (packet, enqueuedAt)
     private var pendingDirectedRelays: [String: [String: (packet: BitchatPacket, enqueuedAt: Date)]] = [:]
+    // Debounce for 'reconnected' logs
+    private var lastReconnectLogAt: [String: Date] = [:]
     
     // MARK: - Maintenance Timer
     
@@ -1494,12 +1498,19 @@ final class BLEService: NSObject {
                 )
             }
             
-            // Log connection status only for direct connectivity changes to avoid flapping on relayed announces
+            // Log connection status only for direct connectivity changes; debounce to reduce spam
             if isDirectAnnounce || hasPeripheralConnection || hasCentralSubscription {
+                let now = Date()
                 if existingPeer == nil {
                     SecureLogger.log("🆕 New peer: \(announcement.nickname)", category: SecureLogger.session, level: .debug)
                 } else if wasDisconnected {
-                    SecureLogger.log("🔄 Peer \(announcement.nickname) reconnected", category: SecureLogger.session, level: .debug)
+                    // Debounce 'reconnected' logs within short window
+                    if let last = lastReconnectLogAt[peerID], now.timeIntervalSince(last) < TransportConfig.bleReconnectLogDebounceSeconds {
+                        // Skip duplicate log
+                    } else {
+                        SecureLogger.log("🔄 Peer \(announcement.nickname) reconnected", category: SecureLogger.session, level: .debug)
+                        lastReconnectLogAt[peerID] = now
+                    }
                 } else if existingPeer?.nickname != announcement.nickname {
                     SecureLogger.log("🔄 Peer \(peerID) changed nickname: \(existingPeer?.nickname ?? "Unknown") -> \(announcement.nickname)", category: SecureLogger.session, level: .debug)
                 }
@@ -1895,6 +1906,18 @@ final class BLEService: NSObject {
                 peer.lastSeen = Date()
                 self.peers[peerID] = peer
             }
+        }
+    }
+
+    // Debounced disconnect notifier to avoid duplicate disconnect callbacks within a short window
+    private func notifyPeerDisconnectedDebounced(_ peerID: String) {
+        let now = Date()
+        let last = recentDisconnectNotifies[peerID]
+        if last == nil || now.timeIntervalSince(last!) >= TransportConfig.bleDisconnectNotifyDebounceSeconds {
+            delegate?.didDisconnectFromPeer(peerID)
+            recentDisconnectNotifies[peerID] = now
+        } else {
+            // Suppressed duplicate disconnect notification
         }
     }
     
@@ -2422,7 +2445,7 @@ func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeriph
             let currentPeerIDs = self.collectionsQueue.sync { Array(self.peers.keys) }
             
             if let peerID = peerID {
-                self.delegate?.didDisconnectFromPeer(peerID)
+                self.notifyPeerDisconnectedDebounced(peerID)
             }
             self.publishFullPeerData()
             self.delegate?.didUpdatePeerList(currentPeerIDs)
@@ -2474,6 +2497,18 @@ extension BLEService {
         guard candidate.isConnectable else { return }
         let peripheral = candidate.peripheral
         let peripheralID = peripheral.identifier.uuidString
+        // Weak-link cooldown: if we recently timed out and RSSI is very weak, delay retries
+        if let lastTO = recentConnectTimeouts[peripheralID] {
+            let elapsed = Date().timeIntervalSince(lastTO)
+            if elapsed < TransportConfig.bleWeakLinkCooldownSeconds && candidate.rssi <= TransportConfig.bleWeakLinkRSSICutoff {
+                // Requeue the candidate and try again later
+                connectionCandidates.append(candidate)
+                let remaining = TransportConfig.bleWeakLinkCooldownSeconds - elapsed
+                let delay = min(max(2.0, remaining), 15.0)
+                bleQueue.asyncAfter(deadline: .now() + delay) { [weak self] in self?.tryConnectFromQueue() }
+                return
+            }
+        }
         if peripherals[peripheralID]?.isConnected == true || peripherals[peripheralID]?.isConnecting == true {
             // Already in progress; skip
             bleQueue.async { [weak self] in self?.tryConnectFromQueue() }
@@ -2811,7 +2846,7 @@ extension BLEService: CBPeripheralManagerDelegate {
                 // Get current peer list (after removal)
                 let currentPeerIDs = self.collectionsQueue.sync { Array(self.peers.keys) }
                 
-                self.delegate?.didDisconnectFromPeer(peerID)
+                self.notifyPeerDisconnectedDebounced(peerID)
                 self.delegate?.didUpdatePeerList(currentPeerIDs)
             }
         }
