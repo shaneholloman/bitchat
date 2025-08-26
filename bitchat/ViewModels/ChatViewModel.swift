@@ -245,7 +245,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private let commandProcessor: CommandProcessor
     private let messageRouter: MessageRouter
     private let privateChatManager: PrivateChatManager
-    private let readReceiptTracker = ReadReceiptTracker()
+    private let readReceiptTracker: ReadReceiptTracker
     private let unifiedPeerService: UnifiedPeerService
     private let autocompleteService: AutocompleteService
     
@@ -456,6 +456,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     
     @MainActor
     init() {
+        // Initialize read receipt tracker first
+        self.readReceiptTracker = ReadReceiptTracker()
         // Initialize services
         self.commandProcessor = CommandProcessor()
         self.privateChatManager = PrivateChatManager(meshService: meshService, readReceiptTracker: readReceiptTracker)
@@ -685,6 +687,195 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             self,
             selector: #selector(appWillTerminate),
             name: UIApplication.willTerminateNotification,
+            object: nil
+        )
+        #endif
+    }
+
+    // MARK: - Dependency-injected initializer (for testing and composition)
+    @MainActor
+    init(meshService: Transport,
+         commandProcessor: CommandProcessor,
+         privateChatManager: PrivateChatManager,
+         unifiedPeerService: UnifiedPeerService,
+         messageRouter: MessageRouter,
+         readReceiptTracker: ReadReceiptTracker = ReadReceiptTracker()) {
+        // Assign dependencies
+        self.meshService = meshService
+        self.commandProcessor = commandProcessor
+        self.privateChatManager = privateChatManager
+        self.unifiedPeerService = unifiedPeerService
+        self.messageRouter = messageRouter
+        self.readReceiptTracker = readReceiptTracker
+
+        // Wire up dependencies
+        self.commandProcessor.chatViewModel = self
+        self.privateChatManager.messageRouter = self.messageRouter
+        self.commandProcessor.meshService = meshService
+
+        // Subscribe to privateChatManager changes to trigger UI updates
+        privateChatManager.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        loadNickname()
+        loadVerifiedFingerprints()
+        meshService.delegate = self
+
+        // Log fingerprint after a delay to ensure encryption service is ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + TransportConfig.uiStartupInitialDelaySeconds) { [weak self] in
+            if let self = self {
+                _ = self.getMyFingerprint()
+            }
+        }
+
+        // Set nickname before starting services
+        meshService.setNickname(nickname)
+
+        // Start mesh service immediately
+        meshService.startServices()
+
+        // Initialize Nostr services
+        Task { @MainActor in
+            nostrRelayManager = NostrRelayManager.shared
+            SecureLogger.log("Initializing Nostr relay connections", category: SecureLogger.session, level: .debug)
+            nostrRelayManager?.connect()
+
+            // Small delay to ensure read receipts are fully loaded
+            try? await Task.sleep(nanoseconds: TransportConfig.uiStartupShortSleepNs)
+
+            // Set up Nostr message handling directly
+            setupNostrMessageHandling()
+
+            // Attempt to flush any queued outbox after Nostr comes online
+            messageRouter.flushAllOutbox()
+
+            // End startup phase after 2 seconds
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(TransportConfig.uiStartupPhaseDurationSeconds * 1_000_000_000))
+                self.isStartupPhase = false
+            }
+
+            // Bind unified peer service's peer list to our published property
+            let cancellable = unifiedPeerService.$peers
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] peers in
+                    // Update peers on main thread for UI consistency
+                    guard let self = self else { return }
+                    Task { @MainActor in
+                        self.allPeers = peers
+                        // Build a quick index for getPeer(by:)
+                        var uniquePeers: [String: BitchatPeer] = [:]
+                        for peer in peers {
+                            if uniquePeers[peer.id] == nil {
+                                uniquePeers[peer.id] = peer
+                            }
+                        }
+                        self.peerIndex = uniquePeers
+                        if self.selectedPrivateChatFingerprint != nil {
+                            self.updatePrivateChatPeerIfNeeded()
+                        }
+                    }
+                }
+            self.cancellables.insert(cancellable)
+
+            // Resubscribe geohash on relay reconnect
+            if let relayMgr = self.nostrRelayManager {
+                relayMgr.$isConnected
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self] connected in
+                        guard let self = self else { return }
+                        if connected {
+                            Task { @MainActor in
+                                self.resubscribeCurrentGeohash()
+                            }
+                        }
+                    }
+                    .store(in: &self.cancellables)
+            }
+        }
+
+        // Set up Noise encryption callbacks
+        setupNoiseCallbacks()
+
+        // Observe location channel selection
+        LocationChannelManager.shared.$selectedChannel
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] channel in
+                guard let self = self else { return }
+                Task { @MainActor in
+                    self.switchLocationChannel(to: channel)
+                }
+            }
+            .store(in: &cancellables)
+        // Initialize with current selection
+        Task { @MainActor in
+            self.switchLocationChannel(to: LocationChannelManager.shared.selectedChannel)
+        }
+
+        // Request notification permission
+        NotificationService.shared.requestAuthorization()
+
+        // Listen for favorite status changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFavoriteStatusChanged),
+            name: .favoriteStatusChanged,
+            object: nil
+        )
+
+        // Listen for peer status updates to refresh UI
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePeerStatusUpdate),
+            name: Notification.Name("peerStatusUpdated"),
+            object: nil
+        )
+
+        #if os(macOS)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillResignActive),
+            name: NSApplication.willResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillTerminate),
+            name: NSApplication.willTerminateNotification,
+            object: nil
+        )
+        #else
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillTerminate),
+            name: UIApplication.willTerminateNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(userDidTakeScreenshot),
+            name: UIApplication.userDidTakeScreenshotNotification,
             object: nil
         )
         #endif
@@ -3579,7 +3770,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 }()
                 let full = nostrKeyMapping[spid]?.lowercased() ?? bare.lowercased()
                 return getNostrPaletteColor(for: full, isDark: isDark)
-            } else if spid.count == 16 {
+            } else if PeerIDResolver.isShortID(spid) {
                 // Mesh short ID
                 return getPeerPaletteColor(for: spid, isDark: isDark)
             } else {

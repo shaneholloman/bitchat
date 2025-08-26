@@ -43,14 +43,14 @@ struct FingerprintView: View {
             VStack(alignment: .leading, spacing: 16) {
                 // Prefer short mesh ID for session/encryption status
                 let statusPeerID: String = {
-                    if peerID.count == 64, let short = viewModel.getShortIDForNoiseKey(peerID) { return short }
+                    if PeerIDResolver.isNoiseKeyHex(peerID), let short = viewModel.getShortIDForNoiseKey(peerID) { return short }
                     return peerID
                 }()
                 // Resolve a friendly name
                 let peerNickname: String = {
                     if let p = viewModel.getPeer(byID: statusPeerID) { return p.displayName }
                     if let name = viewModel.meshService.peerNickname(peerID: statusPeerID) { return name }
-                    if peerID.count == 64, let data = Data(hexString: peerID) {
+                    if PeerIDResolver.isNoiseKeyHex(peerID), let data = Data(hexString: peerID) {
                         if let fav = FavoritesPersistenceService.shared.getFavoriteStatus(for: data), !fav.peerNickname.isEmpty { return fav.peerNickname }
                         let fp = data.sha256Fingerprint()
                         if let social = SecureIdentityStateManager.shared.getSocialIdentity(for: fp) {

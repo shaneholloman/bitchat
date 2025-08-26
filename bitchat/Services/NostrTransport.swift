@@ -167,7 +167,7 @@ final class NostrTransport: Transport {
            let npub = fav.peerNostrPublicKey {
             return npub
         }
-        if peerID.count == 16,
+        if PeerIDResolver.isShortID(peerID),
            let fav = FavoritesPersistenceService.shared.getFavoriteStatus(forPeerID: peerID),
            let npub = fav.peerNostrPublicKey {
             return npub

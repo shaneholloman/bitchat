@@ -512,7 +512,7 @@ final class BLEService: NSObject {
     func isPeerConnected(_ peerID: String) -> Bool {
         // Accept both 16-hex short IDs and 64-hex Noise keys
         let shortID: String = {
-            if peerID.count == 64, let key = Data(hexString: peerID) {
+            if PeerIDResolver.isNoiseKeyHex(peerID), let key = Data(hexString: peerID) {
                 return PeerIDUtils.derivePeerID(fromPublicKey: key)
             }
             return peerID
@@ -523,7 +523,7 @@ final class BLEService: NSObject {
     func isPeerReachable(_ peerID: String) -> Bool {
         // Accept both 16-hex short IDs and 64-hex Noise keys
         let shortID: String = {
-            if peerID.count == 64, let key = Data(hexString: peerID) {
+            if PeerIDResolver.isNoiseKeyHex(peerID), let key = Data(hexString: peerID) {
                 return PeerIDUtils.derivePeerID(fromPublicKey: key)
             }
             return peerID
@@ -664,8 +664,7 @@ final class BLEService: NSObject {
         return collectionsQueue.sync {
             if let publicKey = peers[peerID]?.noisePublicKey {
                 // Use the same fingerprinting method as NoiseEncryptionService/UnifiedPeerService (SHA-256 of raw key)
-                let hash = SHA256.hash(data: publicKey)
-                return hash.map { String(format: "%02x", $0) }.joined()
+                return publicKey.sha256Fingerprint()
             }
             return nil
         }
