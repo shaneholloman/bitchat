@@ -16,14 +16,15 @@ class PrivateChatManager: ObservableObject {
     @Published var unreadMessages: Set<String> = []
     
     private var selectedPeerFingerprint: String? = nil
-    var sentReadReceipts: Set<String> = []  // Made accessible for ChatViewModel
+    private var readReceiptTracker: ReadReceiptTracker?
     
     weak var meshService: Transport?
     // Route acks/receipts via MessageRouter (chooses mesh or Nostr)
     weak var messageRouter: MessageRouter?
     
-    init(meshService: Transport? = nil) {
+    init(meshService: Transport? = nil, readReceiptTracker: ReadReceiptTracker? = nil) {
         self.meshService = meshService
+        self.readReceiptTracker = readReceiptTracker
     }
 
     // Cap for messages stored per private chat
@@ -121,7 +122,7 @@ class PrivateChatManager: ObservableObject {
             unreadMessages.insert(senderPeerID)
             
             // Avoid notifying for messages already marked as read (dup/resubscribe cases)
-            if !sentReadReceipts.contains(message.id) {
+            if !(readReceiptTracker?.contains(message.id) ?? false) {
                 NotificationService.shared.sendPrivateMessageNotification(
                     from: message.sender,
                     message: message.content,
@@ -160,7 +161,7 @@ class PrivateChatManager: ObservableObject {
         // Send read receipts for unread messages that haven't been sent yet
         if let messages = privateChats[peerID] {
             for message in messages {
-                if message.senderPeerID == peerID && !message.isRelay && !sentReadReceipts.contains(message.id) {
+                if message.senderPeerID == peerID && !message.isRelay && !(readReceiptTracker?.contains(message.id) ?? false) {
                     sendReadReceipt(for: message)
                 }
             }
@@ -212,12 +213,12 @@ class PrivateChatManager: ObservableObject {
     // MARK: - Private Methods
     
     private func sendReadReceipt(for message: BitchatMessage) {
-        guard !sentReadReceipts.contains(message.id),
+        guard !(readReceiptTracker?.contains(message.id) ?? false),
               let senderPeerID = message.senderPeerID else {
             return
         }
         
-        sentReadReceipts.insert(message.id)
+        readReceiptTracker?.insert(message.id)
         
         // Create read receipt using the simplified method
         let receipt = ReadReceipt(
