@@ -1247,8 +1247,8 @@ struct ContentView: View {
                                         .foregroundColor(textColor)
                                         .accessibilityLabel("Connected via mesh")
                                 case .meshReachable:
-                                    // point.3 icon for reachable via mesh (not directly connected)
-                                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                                    // point.3 filled icon for reachable via mesh (not directly connected)
+                                    Image(systemName: "point.3.filled.connected.trianglepath.dotted")
                                         .font(.system(size: 14))
                                         .foregroundColor(textColor)
                                         .accessibilityLabel("Reachable via mesh")

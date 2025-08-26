@@ -54,7 +54,7 @@ struct MeshPeerList: View {
                                 .foregroundColor(baseColor)
                         } else if peer.isReachable {
                             // Mesh-reachable (relayed): point.3 icon
-                            Image(systemName: "point.3.connected.trianglepath.dotted")
+                            Image(systemName: "point.3.filled.connected.trianglepath.dotted")
                                 .font(.system(size: 10))
                                 .foregroundColor(baseColor)
                         } else if peer.isMutualFavorite {
