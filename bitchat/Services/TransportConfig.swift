@@ -71,7 +71,9 @@ enum TransportConfig {
     static let bleRSSIIsolatedRelaxed: Int = -92
     static let bleRSSIConnectedThreshold: Int = -85
     static let bleRSSIHighTimeoutThreshold: Int = -80
-    static let blePeerInactivityTimeoutSeconds: TimeInterval = 20.0
+    // How long without seeing traffic before we sanity-check the direct link
+    // Lowered to make connected→reachable icon changes react faster when walking out of range
+    static let blePeerInactivityTimeoutSeconds: TimeInterval = 8.0
     // How long to retain a peer as "reachable" (not directly connected) since lastSeen
     static let bleReachabilityRetentionVerifiedSeconds: TimeInterval = 21.0    // 21s for verified/favorites
     static let bleReachabilityRetentionUnverifiedSeconds: TimeInterval = 21.0  // 21s for unknown/unverified
@@ -144,7 +146,8 @@ enum TransportConfig {
     static let bleDirectedSpoolWindowSeconds: TimeInterval = 15.0
 
     // Log/UI debounce windows
-    static let bleDisconnectNotifyDebounceSeconds: TimeInterval = 1.5
+    // Shorter debounce so UI reacts faster while still suppressing duplicate callbacks
+    static let bleDisconnectNotifyDebounceSeconds: TimeInterval = 0.9
     static let bleReconnectLogDebounceSeconds: TimeInterval = 2.0
 
     // Weak-link cooldown after connection timeouts

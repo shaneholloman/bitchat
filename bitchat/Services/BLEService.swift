@@ -528,8 +528,17 @@ final class BLEService: NSObject {
             }
             return peerID
         }()
-        // A peer is reachable if we have a recent entry for it (connected or recently seen via mesh)
-        return collectionsQueue.sync { peers[shortID] != nil }
+        return collectionsQueue.sync {
+            // Must be mesh-attached: at least one live direct link to the mesh
+            let meshAttached = peers.values.contains { $0.isConnected }
+            guard let info = peers[shortID] else { return false }
+            if info.isConnected { return true }
+            guard meshAttached else { return false }
+            // Apply reachability retention window
+            let isVerified = info.isVerifiedNickname
+            let retention: TimeInterval = isVerified ? TransportConfig.bleReachabilityRetentionVerifiedSeconds : TransportConfig.bleReachabilityRetentionUnverifiedSeconds
+            return Date().timeIntervalSince(info.lastSeen) <= retention
+        }
     }
 
     func peerNickname(peerID: String) -> String? {
@@ -1995,10 +2004,8 @@ final class BLEService: NSObject {
         updateScanningDutyCycle(connectedCount: connectedCount)
         updateRSSIThreshold(connectedCount: connectedCount)
         
-        // Every 20 seconds (2 cycles): Check peer connectivity
-        if maintenanceCounter % 2 == 0 {
-            checkPeerConnectivity()
-        }
+        // Check peer connectivity every cycle for snappier UI updates
+        checkPeerConnectivity()
         
         // Every 30 seconds (3 cycles): Cleanup
         if maintenanceCounter % 3 == 0 {
@@ -2847,6 +2854,8 @@ extension BLEService: CBPeripheralManagerDelegate {
                 let currentPeerIDs = self.collectionsQueue.sync { Array(self.peers.keys) }
                 
                 self.notifyPeerDisconnectedDebounced(peerID)
+                // Publish snapshots so UnifiedPeerService can refresh icons promptly
+                self.publishFullPeerData()
                 self.delegate?.didUpdatePeerList(currentPeerIDs)
             }
         }

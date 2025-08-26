@@ -68,6 +68,9 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
     
     private func updatePeers() {
         let meshPeers = meshService.currentPeerSnapshots()
+        // If we have no direct links at all, peers should not be marked reachable
+        // "Reachable" means mesh-attached via at least one live link.
+        let hasAnyConnected = meshPeers.contains { $0.isConnected }
         let favorites = favoritesService.favorites
         
         var enrichedPeers: [BitchatPeer] = []
@@ -81,7 +84,8 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
             
             let peer = buildPeerFromMesh(
                 peerInfo: peerInfo,
-                favorites: favorites
+                favorites: favorites,
+                meshAttached: hasAnyConnected
             )
             
             enrichedPeers.append(peer)
@@ -163,7 +167,8 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
     
     private func buildPeerFromMesh(
         peerInfo: TransportPeerSnapshot,
-        favorites: [Data: FavoritesPersistenceService.FavoriteRelationship]
+        favorites: [Data: FavoritesPersistenceService.FavoriteRelationship],
+        meshAttached: Bool
     ) -> BitchatPeer {
         // Determine reachability based on lastSeen and identity trust
         let now = Date()
@@ -171,7 +176,9 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
         let isVerified = fingerprint.map { SecureIdentityStateManager.shared.isVerified(fingerprint: $0) } ?? false
         let isFav = peerInfo.noisePublicKey.flatMap { favorites[$0]?.isFavorite } ?? false
         let retention: TimeInterval = (isVerified || isFav) ? TransportConfig.bleReachabilityRetentionVerifiedSeconds : TransportConfig.bleReachabilityRetentionUnverifiedSeconds
-        let isReachable = now.timeIntervalSince(peerInfo.lastSeen) <= retention
+        // A peer is reachable if we recently saw them AND we are attached to the mesh
+        let withinRetention = now.timeIntervalSince(peerInfo.lastSeen) <= retention
+        let isReachable = peerInfo.isConnected ? true : (withinRetention && meshAttached)
 
         var peer = BitchatPeer(
             id: peerInfo.id,
