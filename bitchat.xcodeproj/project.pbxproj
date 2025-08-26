@@ -58,6 +58,8 @@
 		049BD3B52E51F319001A566B /* MessageRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 049BD3B02E51F319001A566B /* MessageRouter.swift */; };
 		ABCD00022E5CCCC300162C4A /* ReadReceiptTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCD00012E5CCCC300162C4A /* ReadReceiptTracker.swift */; };
 		ABCD00032E5CCCC300162C4A /* ReadReceiptTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCD00012E5CCCC300162C4A /* ReadReceiptTracker.swift */; };
+		ABCD00052E5CCCC300162C4C /* NostrInboxService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCD00042E5CCCC300162C4C /* NostrInboxService.swift */; };
+		ABCD00062E5CCCC300162C4D /* NostrInboxService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCD00042E5CCCC300162C4C /* NostrInboxService.swift */; };
 		0AE840940F21AFC07C226636 /* PrivateChatE2ETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A262EDDC04B7D7B5E31F321 /* PrivateChatE2ETests.swift */; };
 		0B6F25559A21F8C69C8357C6 /* BinaryProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B3CC6FA298729906109F61B /* BinaryProtocolTests.swift */; };
 		10E68BB889356219189E38EC /* BitchatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF625BB3AD919322C01A46B2 /* BitchatApp.swift */; };
@@ -216,6 +218,7 @@
 		049BD39F2E51DBF4001A566B /* PeerID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerID.swift; sourceTree = "<group>"; };
 		049BD3A42E51DC0E001A566B /* MessageDeduplicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDeduplicator.swift; sourceTree = "<group>"; };
 		ABCD00012E5CCCC300162C4A /* ReadReceiptTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadReceiptTracker.swift; sourceTree = "<group>"; };
+		ABCD00042E5CCCC300162C4C /* NostrInboxService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrInboxService.swift; sourceTree = "<group>"; };
 		049BD3AA2E51E38E001A566B /* PeerIDResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerIDResolver.swift; sourceTree = "<group>"; };
 		049BD3AD2E51ED60001A566B /* Transport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transport.swift; sourceTree = "<group>"; };
 		049BD3B02E51F319001A566B /* MessageRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageRouter.swift; sourceTree = "<group>"; };
@@ -524,6 +527,7 @@
 			children = (
 				048A4BE62E5CCCC300162C4A /* TransportConfig.swift */,
 				ABCD00012E5CCCC300162C4A /* ReadReceiptTracker.swift */,
+				ABCD00042E5CCCC300162C4C /* NostrInboxService.swift */,
 				AA77BB10CC22DD33EE44FF55 /* VerificationService.swift */,
 				047502B82E560F690083520F /* RelayController.swift */,
 				0475028B2E54171C0083520F /* LocationChannelManager.swift */,
@@ -748,6 +752,7 @@
 			files = (
                 048A4BE72E5CCCC300162C4A /* TransportConfig.swift in Sources */,
                 ABCD00022E5CCCC300162C4A /* ReadReceiptTracker.swift in Sources */,
+                ABCD00052E5CCCC300162C4C /* NostrInboxService.swift in Sources */,
                 1234567890ABCDEFFEDCBA13 /* PeerDisplayNameResolver.swift in Sources */,
 				AA77BB12CC22DD33EE44FF56 /* VerificationService.swift in Sources */,
 				AA77BB15CC22DD33EE44FF59 /* VerificationViews.swift in Sources */,
@@ -808,6 +813,7 @@
 			files = (
                 048A4BE82E5CCCC300162C4A /* TransportConfig.swift in Sources */,
                 ABCD00032E5CCCC300162C4A /* ReadReceiptTracker.swift in Sources */,
+                ABCD00062E5CCCC300162C4D /* NostrInboxService.swift in Sources */,
                 1234567890ABCDEFFEDCBA14 /* PeerDisplayNameResolver.swift in Sources */,
 				AA77BB11CC22DD33EE44FF55 /* VerificationService.swift in Sources */,
 				AA77BB14CC22DD33EE44FF58 /* VerificationViews.swift in Sources */,

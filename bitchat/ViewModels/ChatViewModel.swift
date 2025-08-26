@@ -348,9 +348,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     var meshService: Transport = BLEService()
     private var nostrRelayManager: NostrRelayManager?
     // PeerManager replaced by UnifiedPeerService
-    private var processedNostrEvents = Set<String>()  // Simple deduplication
-    private var processedNostrEventOrder: [String] = []
-    private let maxProcessedNostrEvents = TransportConfig.uiProcessedNostrEventsCap
+    // NostrInboxService handles event de-duplication
     private let userDefaults = UserDefaults.standard
     private let nicknameKey = "bitchat.nickname"
     // Location channel state (macOS supports manual geohash selection)
@@ -359,6 +357,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private var geoDmSubscriptionID: String? = nil
     private var currentGeohash: String? = nil
     private var geoNicknames: [String: String] = [:] // pubkeyHex(lowercased) -> nickname
+    private let nostrInbox = NostrInboxService()
     
     // MARK: - Caches
     
@@ -901,20 +900,15 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         startGeoParticipantsTimer()
         // Unsubscribe + resubscribe
         NostrRelayManager.shared.unsubscribe(id: subID)
-        let filter = NostrFilter.geohashEphemeral(
-            ch.geohash,
-            since: Date().addingTimeInterval(-TransportConfig.nostrGeohashInitialLookbackSeconds),
-            limit: TransportConfig.nostrGeohashInitialLimit
-        )
-        let subRelays = GeoRelayDirectory.shared.closestRelays(
-            toGeohash: ch.geohash,
-            count: TransportConfig.nostrGeoRelayCount
-        )
-        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: subRelays) { [weak self] event in
+        nostrInbox.subscribeGeohashEphemeral(
+            geohash: ch.geohash,
+            lookbackSeconds: TransportConfig.nostrGeohashInitialLookbackSeconds,
+            limit: TransportConfig.nostrGeohashInitialLimit,
+            relayCount: TransportConfig.nostrGeoRelayCount,
+            subID: subID
+        ) { [weak self] event in
             guard let self = self else { return }
             guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue else { return }
-            if self.processedNostrEvents.contains(event.id) { return }
-            self.processedNostrEvents.insert(event.id)
             if let gh = self.currentGeohash,
                let myGeoIdentity = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh),
                myGeoIdentity.publicKeyHex.lowercased() == event.pubkey.lowercased() {
@@ -971,11 +965,12 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             let id = try NostrIdentityBridge.deriveIdentity(forGeohash: ch.geohash)
             let dmSub = "geo-dm-\(ch.geohash)"
             geoDmSubscriptionID = dmSub
-            let dmFilter = NostrFilter.giftWrapsFor(pubkey: id.publicKeyHex, since: Date().addingTimeInterval(-TransportConfig.nostrDMSubscribeLookbackSeconds))
-            NostrRelayManager.shared.subscribe(filter: dmFilter, id: dmSub) { [weak self] giftWrap in
+            nostrInbox.subscribeGiftWrapsFor(
+                pubkeyHex: id.publicKeyHex,
+                lookbackSeconds: TransportConfig.nostrDMSubscribeLookbackSeconds,
+                subID: dmSub
+            ) { [weak self] giftWrap in
                 guard let self = self else { return }
-                if self.processedNostrEvents.contains(giftWrap.id) { return }
-                self.recordProcessedEvent(giftWrap.id)
                 guard let (content, senderPubkey, rumorTs) = try? NostrProtocol.decryptPrivateMessage(giftWrap: giftWrap, recipientIdentity: id) else { return }
                 guard content.hasPrefix("bitchat1:") else { return }
                 guard let packetData = Self.base64URLDecode(String(content.dropFirst("bitchat1:".count))),
@@ -1512,8 +1507,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         publicBuffer.removeAll(keepingCapacity: false)
         activeChannel = channel
         // Reset deduplication set and optionally hydrate timeline for mesh
-        processedNostrEvents.removeAll()
-        processedNostrEventOrder.removeAll()
+        nostrInbox.reset()
         switch channel {
         case .mesh:
             messages = meshTimeline
@@ -1557,19 +1551,16 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         let subID = "geo-\(ch.geohash)"
         geoSubscriptionID = subID
         startGeoParticipantsTimer()
-        let filter = NostrFilter.geohashEphemeral(
-            ch.geohash,
-            since: Date().addingTimeInterval(-TransportConfig.nostrGeohashInitialLookbackSeconds),
-            limit: TransportConfig.nostrGeohashInitialLimit
-        )
-        let subRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: ch.geohash, count: 5)
-        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: subRelays) { [weak self] event in
+        nostrInbox.subscribeGeohashEphemeral(
+            geohash: ch.geohash,
+            lookbackSeconds: TransportConfig.nostrGeohashInitialLookbackSeconds,
+            limit: TransportConfig.nostrGeohashInitialLimit,
+            relayCount: TransportConfig.nostrGeoRelayCount,
+            subID: subID
+        ) { [weak self] event in
             guard let self = self else { return }
             // Only handle ephemeral kind 20000 with matching tag
             guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue else { return }
-            // Deduplicate
-            if self.processedNostrEvents.contains(event.id) { return }
-            self.recordProcessedEvent(event.id)
             // Log incoming tags for diagnostics
             let tagSummary = event.tags.map { "[" + $0.joined(separator: ",") + "]" }.joined(separator: ",")
             SecureLogger.log("GeoTeleport: recv pub=\(event.pubkey.prefix(8))… tags=\(tagSummary)",
@@ -1646,12 +1637,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             // pared back logging: subscribe debug only
             SecureLogger.log("GeoDM: subscribing DMs pub=\(id.publicKeyHex.prefix(8))… sub=\(dmSub)",
                             category: SecureLogger.session, level: .debug)
-            let dmFilter = NostrFilter.giftWrapsFor(pubkey: id.publicKeyHex, since: Date().addingTimeInterval(-TransportConfig.nostrDMSubscribeLookbackSeconds))
-            NostrRelayManager.shared.subscribe(filter: dmFilter, id: dmSub) { [weak self] giftWrap in
+            nostrInbox.subscribeGiftWrapsFor(pubkeyHex: id.publicKeyHex, lookbackSeconds: TransportConfig.nostrDMSubscribeLookbackSeconds, subID: dmSub) { [weak self] giftWrap in
                 guard let self = self else { return }
-                // Dedup basic
-                if self.processedNostrEvents.contains(giftWrap.id) { return }
-                self.recordProcessedEvent(giftWrap.id)
                 // Decrypt with per-geohash identity
                 guard let (content, senderPubkey, rumorTs) = try? NostrProtocol.decryptPrivateMessage(giftWrap: giftWrap, recipientIdentity: id) else {
                     SecureLogger.log("GeoDM: failed decrypt giftWrap id=\(giftWrap.id.prefix(8))…",
@@ -1918,7 +1905,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
 
         //
         for (subID, gh) in geoSamplingSubs where toRemove.contains(gh) {
-            NostrRelayManager.shared.unsubscribe(id: subID)
+            nostrInbox.unsubscribe(id: subID)
             geoSamplingSubs.removeValue(forKey: subID)
         }
 
@@ -1926,13 +1913,13 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         for gh in toAdd {
             let subID = "geo-sample-\(gh)"
             geoSamplingSubs[subID] = gh
-            let filter = NostrFilter.geohashEphemeral(
-                gh,
-                since: Date().addingTimeInterval(-TransportConfig.nostrGeohashSampleLookbackSeconds),
-                limit: TransportConfig.nostrGeohashSampleLimit
-            )
-            let subRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: gh, count: 5)
-            NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: subRelays) { [weak self] event in
+            nostrInbox.subscribeGeohashEphemeral(
+                geohash: gh,
+                lookbackSeconds: TransportConfig.nostrGeohashSampleLookbackSeconds,
+                limit: TransportConfig.nostrGeohashSampleLimit,
+                relayCount: TransportConfig.nostrGeoRelayCount,
+                subID: subID
+            ) { [weak self] event in
                 guard let self = self else { return }
                 guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue else { return }
                 // Update participants for this specific geohash
@@ -2008,19 +1995,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     }
 
     // Dedup helper with small memory cap
-    private func recordProcessedEvent(_ id: String) {
-        processedNostrEvents.insert(id)
-        processedNostrEventOrder.append(id)
-        if processedNostrEventOrder.count > maxProcessedNostrEvents {
-            let overflow = processedNostrEventOrder.count - maxProcessedNostrEvents
-            for _ in 0..<overflow {
-                if let old = processedNostrEventOrder.first {
-                    processedNostrEventOrder.removeFirst()
-                    processedNostrEvents.remove(old)
-                }
-            }
-        }
-    }
+    private func recordProcessedEvent(_ id: String) {}
     
     /// Sends an encrypted private message to a specific peer.
     /// - Parameters:
@@ -4939,12 +4914,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                         category: SecureLogger.session, level: .debug)
         
         // Subscribe to Nostr messages
-        let filter = NostrFilter.giftWrapsFor(
-            pubkey: currentIdentity.publicKeyHex,
-            since: Date().addingTimeInterval(-TransportConfig.nostrDMSubscribeLookbackSeconds)  // Last 24 hours
-        )
-        
-        nostrRelayManager?.subscribe(filter: filter, id: "chat-messages") { [weak self] event in
+        let _ = nostrInbox.subscribeGiftWrapsFor(
+            pubkeyHex: currentIdentity.publicKeyHex,
+            lookbackSeconds: TransportConfig.nostrDMSubscribeLookbackSeconds,
+            subID: "chat-messages"
+        ) { [weak self] event in
             Task { @MainActor in
                 self?.handleNostrMessage(event)
             }
@@ -4953,9 +4927,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     
     @MainActor
     private func handleNostrMessage(_ giftWrap: NostrEvent) {
-        // Simple deduplication
-        if processedNostrEvents.contains(giftWrap.id) { return }
-        processedNostrEvents.insert(giftWrap.id)
+        // De-duplication handled by NostrInboxService
         
         // Client-side filtering: ignore messages older than 24 hours
         // Add 15 minutes buffer since gift wrap timestamps are randomized ±15 minutes
