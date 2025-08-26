@@ -212,6 +212,8 @@ final class BLEService: NSObject {
                 self.collectionsQueue.async(flags: .barrier) {
                     self.pendingPeripheralWrites[uuid, default: []].append(data)
                 }
+            } else {
+                SecureLogger.log("📡 Reachable via mesh (relayed announce): \(announcement.nickname) ttl=\(packet.ttl)", category: SecureLogger.session, level: .debug)
             }
         }
     }
@@ -1345,11 +1347,14 @@ final class BLEService: NSObject {
         collectionsQueue.sync(flags: .barrier) {
             // Check if we have an actual BLE connection to this peer
             let peripheralUUID = peerToPeripheralUUID[peerID]
-            _ = peripheralUUID != nil && peripherals[peripheralUUID!]?.isConnected == true  // hasPeripheralConnection
+            let hasPeripheralConnection = peripheralUUID != nil && peripherals[peripheralUUID!]?.isConnected == true
             
             // Check if this peer is subscribed to us as a central
             // Note: We can't identify which specific central is which peer without additional mapping
-            _ = !subscribedCentrals.isEmpty  // hasCentralSubscription
+            let hasCentralSubscription = centralToPeerID.values.contains(peerID)
+            
+            // Direct announces arrive with full TTL (no prior hop)
+            let isDirectAnnounce = (packet.ttl == messageTTL)
             
             // Check if we already have this peer (might be reconnecting)
             let existingPeer = peers[peerID]
@@ -1387,7 +1392,7 @@ final class BLEService: NSObject {
                 peers[peerID] = PeerInfo(
                     id: existing.id,
                     nickname: announcement.nickname,
-                    isConnected: true,
+                    isConnected: isDirectAnnounce || hasPeripheralConnection || hasCentralSubscription,
                     noisePublicKey: announcement.noisePublicKey,
                     signingPublicKey: announcement.signingPublicKey,
                     isVerifiedNickname: true,
@@ -1398,7 +1403,7 @@ final class BLEService: NSObject {
                 peers[peerID] = PeerInfo(
                     id: peerID,
                     nickname: announcement.nickname,
-                    isConnected: true,
+                    isConnected: isDirectAnnounce || hasPeripheralConnection || hasCentralSubscription,
                     noisePublicKey: announcement.noisePublicKey,
                     signingPublicKey: announcement.signingPublicKey,
                     isVerifiedNickname: true,
@@ -1406,13 +1411,15 @@ final class BLEService: NSObject {
                 )
             }
             
-            // Log connection status
-            if existingPeer == nil {
-                SecureLogger.log("🆕 New peer: \(announcement.nickname)", category: SecureLogger.session, level: .debug)
-            } else if wasDisconnected {
-                SecureLogger.log("🔄 Peer \(announcement.nickname) reconnected", category: SecureLogger.session, level: .debug)
-            } else if existingPeer?.nickname != announcement.nickname {
-                SecureLogger.log("🔄 Peer \(peerID) changed nickname: \(existingPeer?.nickname ?? "Unknown") -> \(announcement.nickname)", category: SecureLogger.session, level: .debug)
+            // Log connection status only for direct connectivity changes to avoid flapping on relayed announces
+            if isDirectAnnounce || hasPeripheralConnection || hasCentralSubscription {
+                if existingPeer == nil {
+                    SecureLogger.log("🆕 New peer: \(announcement.nickname)", category: SecureLogger.session, level: .debug)
+                } else if wasDisconnected {
+                    SecureLogger.log("🔄 Peer \(announcement.nickname) reconnected", category: SecureLogger.session, level: .debug)
+                } else if existingPeer?.nickname != announcement.nickname {
+                    SecureLogger.log("🔄 Peer \(peerID) changed nickname: \(existingPeer?.nickname ?? "Unknown") -> \(announcement.nickname)", category: SecureLogger.session, level: .debug)
+                }
             }
         }
 
@@ -1436,8 +1443,8 @@ final class BLEService: NSObject {
             // Get current peer list (after addition)
             let currentPeerIDs = self.collectionsQueue.sync { Array(self.peers.keys) }
             
-            // Only notify of connection for new or reconnected peers
-            if isNewPeer || isReconnectedPeer {
+            // Only notify of connection for new or reconnected peers when it is a direct announce
+            if (packet.ttl == self.messageTTL) && (isNewPeer || isReconnectedPeer) {
                 self.delegate?.didConnectToPeer(peerID)
             }
             
@@ -1507,8 +1514,16 @@ final class BLEService: NSObject {
             SecureLogger.log("❌ Failed to decode message payload as UTF-8", category: SecureLogger.session, level: .error)
             return
         }
+        // Determine if we have a direct link to the sender
+        let hasDirectLink: Bool = collectionsQueue.sync {
+            let perUUID = peerToPeripheralUUID[peerID]
+            let perConnected = perUUID != nil && peripherals[perUUID!]?.isConnected == true
+            let hasCentral = centralToPeerID.values.contains(peerID)
+            return perConnected || hasCentral
+        }
 
-        SecureLogger.log("💬 [\(senderNickname)] TTL:\(packet.ttl): \(String(content.prefix(50)))\(content.count > 50 ? "..." : "")", category: SecureLogger.session, level: .debug)
+        let pathTag = hasDirectLink ? "direct" : "mesh"
+        SecureLogger.log("💬 [\(senderNickname)] TTL:\(packet.ttl) (\(pathTag)): \(String(content.prefix(50)))\(content.count > 50 ? "..." : "")", category: SecureLogger.session, level: .debug)
 
         let ts = Date(timeIntervalSince1970: Double(packet.timestamp) / 1000)
         notifyUI { [weak self] in
