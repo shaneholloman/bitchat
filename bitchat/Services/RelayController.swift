@@ -25,7 +25,8 @@ struct RelayController {
             // Always relay with no TTL cap for these types
             let newTTL = (ttl &- 1)
             // Slight jitter to desynchronize without adding too much latency
-            let delayRange: ClosedRange<Int> = isHandshake ? 20...60 : 40...120
+            // Tighter for faster multi-hop handshakes and directed DMs
+            let delayRange: ClosedRange<Int> = isHandshake ? 10...35 : 20...60
             let delayMs = Int.random(in: delayRange)
             return RelayDecision(shouldRelay: true, newTTL: newTTL, delayMs: delayMs)
         }
@@ -42,8 +43,10 @@ struct RelayController {
         let prob = baseProb
         let shouldRelay = Double.random(in: 0...1) <= prob
 
-        // TTL clamping in dense graphs (only for broadcast)
-        let ttlCap: UInt8 = degree >= highDegreeThreshold ? 3 : 5
+        // TTL clamping for broadcast
+        // - Dense graphs: keep very low to avoid floods
+        // - Sparse graphs: allow slightly longer reach for multi-hop discovery
+        let ttlCap: UInt8 = degree >= highDegreeThreshold ? 3 : 6
         let clamped = max(1, min(ttl, ttlCap))
         let newTTL = clamped &- 1
 
