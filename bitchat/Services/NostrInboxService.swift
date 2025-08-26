@@ -9,6 +9,7 @@
 
 import Foundation
 
+@MainActor
 final class NostrInboxService {
     private var processedIDs: Set<String> = []
     private var order: [String] = []
@@ -47,7 +48,7 @@ final class NostrInboxService {
         limit: Int,
         relayCount: Int,
         subID: String? = nil,
-        handler: @escaping (NostrProtocol.Event) -> Void
+        handler: @escaping (NostrEvent) -> Void
     ) -> String {
         let id = subID ?? "geo-\(geohash)"
         let filter = NostrFilter.geohashEphemeral(
@@ -71,7 +72,7 @@ final class NostrInboxService {
         pubkeyHex: String,
         lookbackSeconds: TimeInterval,
         subID: String? = nil,
-        handler: @escaping (NostrProtocol.Event) -> Void
+        handler: @escaping (NostrEvent) -> Void
     ) -> String {
         let id = subID ?? "dm-\(pubkeyHex.prefix(8))"
         let filter = NostrFilter.giftWrapsFor(pubkey: pubkeyHex, since: Date().addingTimeInterval(-lookbackSeconds))
@@ -87,4 +88,3 @@ final class NostrInboxService {
         NostrRelayManager.shared.unsubscribe(id: id)
     }
 }
-
