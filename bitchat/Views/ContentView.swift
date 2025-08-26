@@ -1036,9 +1036,8 @@ struct ContentView: View {
         case .mesh:
             let counts = viewModel.allPeers.reduce(into: (others: 0, mesh: 0)) { counts, peer in
                 guard peer.id != viewModel.meshService.myPeerID else { return }
-                let isMeshConnected = peer.isConnected
-                if isMeshConnected { counts.mesh += 1; counts.others += 1 }
-                else if peer.isMutualFavorite { counts.others += 1 }
+                if peer.isConnected { counts.mesh += 1; counts.others += 1 }
+                else if peer.isReachable { counts.others += 1 }
             }
             let meshBlue = Color(hue: 0.60, saturation: 0.85, brightness: 0.82)
             let color: Color = counts.mesh > 0 ? meshBlue : Color.secondary
@@ -1248,8 +1247,8 @@ struct ContentView: View {
                                         .foregroundColor(textColor)
                                         .accessibilityLabel("Connected via mesh")
                                 case .meshReachable:
-                                    // Antenna icon for reachable via mesh (not directly connected)
-                                    Image(systemName: "antenna.radiowaves.left.and.right")
+                                    // point.3 icon for reachable via mesh (not directly connected)
+                                    Image(systemName: "point.3.connected.trianglepath.dotted")
                                         .font(.system(size: 14))
                                         .foregroundColor(textColor)
                                         .accessibilityLabel("Reachable via mesh")
