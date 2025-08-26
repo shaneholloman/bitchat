@@ -119,7 +119,7 @@ struct MeshPeerList: View {
                         if !isMe, item.hasUnread {
                             Image(systemName: "envelope.fill")
                                 .font(.system(size: 10))
-                                .foregroundColor(.yellow)
+                                .foregroundColor(.orange)
                                 .help("New messages")
                         }
 

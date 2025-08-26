@@ -935,6 +935,13 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             if unreadPrivateMessages.contains(noiseKeyHex) {
                 return true
             }
+            // Also check for geohash (Nostr) DM conv key if this peer has a known Nostr pubkey
+            if let nostrHex = peer.nostrPublicKey {
+                let convKey = "nostr_" + String(nostrHex.prefix(TransportConfig.nostrConvKeyPrefixLength))
+                if unreadPrivateMessages.contains(convKey) {
+                    return true
+                }
+            }
         }
         
         // Get the peer's nickname to check for temporary Nostr peer IDs
