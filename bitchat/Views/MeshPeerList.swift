@@ -115,6 +115,14 @@ struct MeshPeerList: View {
 
                         Spacer()
 
+                        // Unread message indicator for this peer
+                        if !isMe, item.hasUnread {
+                            Image(systemName: "envelope.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.yellow)
+                                .help("New messages")
+                        }
+
                         if !isMe {
                             Button(action: { onToggleFavorite(peer.id) }) {
                                 Image(systemName: (peer.favoriteStatus?.isFavorite ?? false) ? "star.fill" : "star")

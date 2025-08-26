@@ -2041,6 +2041,8 @@ final class BLEService: NSObject {
                 for peerID in disconnectedPeers {
                     self.delegate?.didDisconnectFromPeer(peerID)
                 }
+                // Publish snapshots so UnifiedPeerService updates connection/reachability icons
+                self.publishFullPeerData()
                 self.delegate?.didUpdatePeerList(currentPeerIDs)
             }
         }
