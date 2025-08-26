@@ -357,7 +357,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private var geoDmSubscriptionID: String? = nil
     private var currentGeohash: String? = nil
     private var geoNicknames: [String: String] = [:] // pubkeyHex(lowercased) -> nickname
-    private let nostrInbox = NostrInboxService()
+    private var nostrInbox: NostrInboxService
     private var nostrOutbox: NostrOutboxService
     
     // MARK: - Caches
@@ -464,6 +464,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         self.unifiedPeerService = UnifiedPeerService(meshService: meshService)
         let nostrTransport = NostrTransport()
         self.messageRouter = MessageRouter(mesh: meshService, nostr: nostrTransport)
+        self.nostrInbox = NostrInboxService()
         self.nostrOutbox = NostrOutboxService(meshService: meshService)
         // Route receipts from PrivateChatManager through MessageRouter
         self.privateChatManager.messageRouter = self.messageRouter
@@ -709,6 +710,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         self.messageRouter = messageRouter
         self.readReceiptTracker = readReceiptTracker
         self.autocompleteService = AutocompleteService()
+        self.nostrInbox = NostrInboxService()
         self.nostrOutbox = NostrOutboxService(meshService: meshService)
 
         // Wire up dependencies
