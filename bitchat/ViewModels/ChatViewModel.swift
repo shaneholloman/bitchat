@@ -707,6 +707,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         self.unifiedPeerService = unifiedPeerService
         self.messageRouter = messageRouter
         self.readReceiptTracker = readReceiptTracker
+        self.autocompleteService = AutocompleteService()
 
         // Wire up dependencies
         self.commandProcessor.chatViewModel = self
