@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CryptoKit
 
 // MARK: - Hex Encoding/Decoding
 
@@ -32,6 +33,16 @@ extension Data {
         }
         
         self = data
+    }
+}
+
+// MARK: - Fingerprint Helpers
+
+extension Data {
+    /// SHA-256 over data, hex-encoded (lowercase)
+    func sha256Fingerprint() -> String {
+        let hash = SHA256.hash(data: self)
+        return hash.map { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -220,4 +231,3 @@ extension Data {
         return data
     }
 }
-

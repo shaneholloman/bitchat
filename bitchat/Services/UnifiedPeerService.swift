@@ -412,10 +412,4 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
 
 // MARK: - Helper Extensions
 
-extension Data {
-    func sha256Fingerprint() -> String {
-        // Implementation matches existing fingerprint generation in NoiseEncryptionService
-        let hash = SHA256.hash(data: self)
-        return hash.map { String(format: "%02x", $0) }.joined()
-    }
-}
+// Moved sha256Fingerprint() to BinaryEncodingUtils for reuse

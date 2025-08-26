@@ -310,7 +310,7 @@ class SecureIdentityStateManager {
     func getCryptoIdentitiesByPeerIDPrefix(_ peerID: String) -> [CryptographicIdentity] {
         queue.sync {
             // Defensive: ensure hex and correct length
-            guard peerID.count == 16, peerID.allSatisfy({ $0.isHexDigit }) else { return [] }
+            guard PeerIDResolver.isShortID(peerID) else { return [] }
             return cryptographicIdentities.values.filter { $0.fingerprint.hasPrefix(peerID) }
         }
     }

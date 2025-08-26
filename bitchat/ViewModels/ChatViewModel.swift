@@ -161,7 +161,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 }()
                 let full = (nostrKeyMapping[spid] ?? bare).lowercased()
                 return "nostr:" + full
-            } else if spid.count == 16, let full = getNoiseKeyForShortID(spid)?.lowercased() {
+            } else if PeerIDResolver.isShortID(spid), let full = getNoiseKeyForShortID(spid)?.lowercased() {
                 return "noise:" + full
             } else {
                 return "mesh:" + spid.lowercased()
@@ -309,7 +309,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     func getNoiseKeyForShortID(_ shortPeerID: String) -> String? {
         if let mapped = shortIDToNoiseKey[shortPeerID] { return mapped }
         // Fallback: derive from active Noise session if available
-        if shortPeerID.count == 16,
+        if PeerIDResolver.isShortID(shortPeerID),
            let key = meshService.getNoiseService().getPeerPublicKeyData(shortPeerID) {
             let stable = key.hexEncodedString()
             shortIDToNoiseKey[shortPeerID] = stable
@@ -970,7 +970,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         // Ephemeral peer IDs are 8 bytes = 16 hex characters
         // Noise public keys are 32 bytes = 64 hex characters
         
-        if peerID.count == 64, let noisePublicKey = Data(hexString: peerID) {
+        if PeerIDResolver.isNoiseKeyHex(peerID), let noisePublicKey = Data(hexString: peerID) {
             // This is a stable Noise key hex (used in private chats)
             // Find the ephemeral peer ID for this Noise key
             let ephemeralPeerID = unifiedPeerService.peers.first { peer in
@@ -1033,7 +1033,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     @MainActor
     func isFavorite(peerID: String) -> Bool {
         // Distinguish between ephemeral peer IDs (16 hex chars) and Noise public keys (64 hex chars)
-        if peerID.count == 64, let noisePublicKey = Data(hexString: peerID) {
+        if PeerIDResolver.isNoiseKeyHex(peerID), let noisePublicKey = Data(hexString: peerID) {
             // This is a Noise public key
             if let status = FavoritesPersistenceService.shared.getFavoriteStatus(for: noisePublicKey) {
                 return status.isFavorite
@@ -3965,7 +3965,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         
         // Check if this might already be a nickname (not a hex peer ID)
         // Peer IDs are hex strings, so they only contain 0-9 and a-f
-        let isHexID = peerID.allSatisfy { $0.isHexDigit }
+        let isHexID = PeerIDResolver.isShortID(peerID) || PeerIDResolver.isNoiseKeyHex(peerID)
         if !isHexID {
             // If it's already a nickname, just return it
             return peerID
@@ -4519,7 +4519,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 
                 // Don't remove stable Noise key hexes (64 char hex strings) that have messages
                 // These are used for Nostr messages when peer is offline
-                if staleID.count == 64, staleID.allSatisfy({ $0.isHexDigit }) {
+                if PeerIDResolver.isNoiseKeyHex(staleID) {
                     if let messages = privateChats[staleID], !messages.isEmpty {
                         // Keep this ID - it's a stable key with messages
                         continue
@@ -5086,7 +5086,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         var noiseKey: Data? = nil
         
         // First try as hex-encoded Noise key (64 chars)
-        if peerID.count == 64 {
+        if PeerIDResolver.isNoiseKeyHex(peerID) {
             noiseKey = Data(hexString: peerID)
         }
         
@@ -5484,7 +5484,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         
         // IMPORTANT: Also consolidate messages from stable Noise key if this is an ephemeral peer
         // This ensures Nostr messages appear in BLE chats
-        if peerID.count == 16 {  // This is an ephemeral peer ID (8 bytes = 16 hex chars)
+        if PeerIDResolver.isShortID(peerID) {  // This is an ephemeral peer ID (8 bytes = 16 hex chars)
             if let peer = unifiedPeerService.getPeer(by: peerID) {
                 let stableKeyHex = peer.noisePublicKey.hexEncodedString()
                 

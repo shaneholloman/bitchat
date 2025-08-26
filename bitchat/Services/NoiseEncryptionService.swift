@@ -548,8 +548,7 @@ class NoiseEncryptionService {
     }
     
     private func calculateFingerprint(for publicKey: Curve25519.KeyAgreement.PublicKey) -> String {
-        let hash = SHA256.hash(data: publicKey.rawRepresentation)
-        return hash.map { String(format: "%02x", $0) }.joined()
+        return publicKey.rawRepresentation.sha256Fingerprint()
     }
         
     // MARK: - Session Maintenance

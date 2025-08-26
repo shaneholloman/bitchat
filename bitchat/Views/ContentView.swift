@@ -1182,7 +1182,7 @@ struct ContentView: View {
     private func privateHeaderContent(for privatePeerID: String) -> some View {
         // Prefer short (mesh) ID whenever available for encryption/session status; keep stable key for display resolution only.
         let headerPeerID: String = {
-            if privatePeerID.count == 64 {
+            if PeerIDResolver.isNoiseKeyHex(privatePeerID) {
                 // Map stable Noise key to short ID if we know it (even if not directly connected)
                 if let short = viewModel.getShortIDForNoiseKey(privatePeerID) { return short }
             }
@@ -1207,14 +1207,14 @@ struct ContentView: View {
             if let fav = FavoritesPersistenceService.shared.getFavoriteStatus(for: Data(hexString: headerPeerID) ?? Data()),
                !fav.peerNickname.isEmpty { return fav.peerNickname }
             // Fallback: resolve from persisted social identity via fingerprint mapping
-            if headerPeerID.count == 16 {
+            if PeerIDResolver.isShortID(headerPeerID) {
                 let candidates = SecureIdentityStateManager.shared.getCryptoIdentitiesByPeerIDPrefix(headerPeerID)
                 if let id = candidates.first,
                    let social = SecureIdentityStateManager.shared.getSocialIdentity(for: id.fingerprint) {
                     if let pet = social.localPetname, !pet.isEmpty { return pet }
                     if !social.claimedNickname.isEmpty { return social.claimedNickname }
                 }
-            } else if headerPeerID.count == 64, let keyData = Data(hexString: headerPeerID) {
+            } else if PeerIDResolver.isNoiseKeyHex(headerPeerID), let keyData = Data(hexString: headerPeerID) {
                 let fp = keyData.sha256Fingerprint()
                 if let social = SecureIdentityStateManager.shared.getSocialIdentity(for: fp) {
                     if let pet = social.localPetname, !pet.isEmpty { return pet }
@@ -1298,7 +1298,7 @@ struct ContentView: View {
                             if !privatePeerID.hasPrefix("nostr_") {
                                 // Use short peer ID if available for encryption status (sessions keyed by short ID)
                                 let statusPeerID: String = {
-                                    if privatePeerID.count == 64, let short = viewModel.getShortIDForNoiseKey(privatePeerID) {
+                                    if PeerIDResolver.isNoiseKeyHex(privatePeerID), let short = viewModel.getShortIDForNoiseKey(privatePeerID) {
                                         return short
                                     }
                                     return headerPeerID
