@@ -212,8 +212,6 @@ final class BLEService: NSObject {
                 self.collectionsQueue.async(flags: .barrier) {
                     self.pendingPeripheralWrites[uuid, default: []].append(data)
                 }
-            } else {
-                SecureLogger.log("📡 Reachable via mesh (relayed announce): \(announcement.nickname) ttl=\(packet.ttl)", category: SecureLogger.session, level: .debug)
             }
         }
     }
