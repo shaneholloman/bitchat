@@ -311,6 +311,10 @@ final class BLEService: NSObject {
                 self?.sendPendingMessagesAfterHandshake(for: peerID)
                 self?.sendPendingNoisePayloadsAfterHandshake(for: peerID)
             }
+            // Proactive presence nudge: announce immediately after handshake
+            self?.messageQueue.async { [weak self] in
+                self?.sendAnnounce(forceSend: true)
+            }
         }
         
         // Set up application state tracking (iOS only)
@@ -1854,6 +1858,16 @@ final class BLEService: NSObject {
                 TransportConfig.bleConnectedAnnounceJitterDense : TransportConfig.bleConnectedAnnounceJitterSparse
             let target = base + Double.random(in: -jitter...jitter)
             if elapsed >= target { sendAnnounce(forceSend: true) }
+        }
+
+        // Activity-driven quick-announce: if we've seen any packet in last 5s and it has
+        // been >=10s since the last announce, send a presence nudge.
+        let recentSeen = collectionsQueue.sync { () -> Bool in
+            let cutoff = now.addingTimeInterval(-5.0)
+            return recentPacketTimestamps.contains(where: { $0 >= cutoff })
+        }
+        if recentSeen && elapsed >= 10.0 {
+            sendAnnounce(forceSend: true)
         }
         
         // If we have no peers, ensure we're scanning and advertising

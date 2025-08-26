@@ -62,7 +62,7 @@ enum TransportConfig {
     static let uiRecentCutoffFiveMinutesSeconds: TimeInterval = 5 * 60
 
     // BLE maintenance & thresholds
-    static let bleMaintenanceInterval: TimeInterval = 10.0
+    static let bleMaintenanceInterval: TimeInterval = 5.0
     static let bleMaintenanceLeewaySeconds: Int = 1
     static let bleIsolationRelaxThresholdSeconds: TimeInterval = 60
     static let bleRecentTimeoutWindowSeconds: TimeInterval = 60
@@ -84,13 +84,13 @@ enum TransportConfig {
     static let bleExpectedWritePerFragmentMs: Int = 8
     static let bleExpectedWriteMaxMs: Int = 2000
     static let bleFragmentSpacingMs: Int = 6
-    static let bleAnnounceIntervalSeconds: TimeInterval = 10.0
+    static let bleAnnounceIntervalSeconds: TimeInterval = 4.0
     static let bleDutyOnDurationDense: TimeInterval = 3.0
     static let bleDutyOffDurationDense: TimeInterval = 15.0
-    static let bleConnectedAnnounceBaseSecondsDense: TimeInterval = 90.0
-    static let bleConnectedAnnounceBaseSecondsSparse: TimeInterval = 45.0
-    static let bleConnectedAnnounceJitterDense: TimeInterval = 20.0
-    static let bleConnectedAnnounceJitterSparse: TimeInterval = 7.5
+    static let bleConnectedAnnounceBaseSecondsDense: TimeInterval = 30.0
+    static let bleConnectedAnnounceBaseSecondsSparse: TimeInterval = 15.0
+    static let bleConnectedAnnounceJitterDense: TimeInterval = 8.0
+    static let bleConnectedAnnounceJitterSparse: TimeInterval = 4.0
 
     // Location
     static let locationDistanceFilterMeters: Double = 1000
@@ -129,12 +129,12 @@ enum TransportConfig {
     static let geoRelayFetchIntervalSeconds: TimeInterval = 60 * 60 * 24
 
     // BLE operational delays
-    static let bleInitialAnnounceDelaySeconds: TimeInterval = 2.0
+    static let bleInitialAnnounceDelaySeconds: TimeInterval = 0.6
     static let bleConnectTimeoutSeconds: TimeInterval = 8.0
     static let bleRestartScanDelaySeconds: TimeInterval = 0.1
-    static let blePostSubscribeAnnounceDelaySeconds: TimeInterval = 0.1
+    static let blePostSubscribeAnnounceDelaySeconds: TimeInterval = 0.05
     static let blePostAnnounceDelaySeconds: TimeInterval = 0.4
-    static let bleForceAnnounceMinIntervalSeconds: TimeInterval = 0.2
+    static let bleForceAnnounceMinIntervalSeconds: TimeInterval = 0.15
 
     // Content hashing / formatting
     static let contentKeyPrefixLength: Int = 256
