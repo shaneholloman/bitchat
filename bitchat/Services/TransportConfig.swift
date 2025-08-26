@@ -80,6 +80,8 @@ enum TransportConfig {
     static let bleConnectTimeoutBackoffWindowSeconds: TimeInterval = 120.0
     static let bleRecentPacketWindowSeconds: TimeInterval = 30.0
     static let bleRecentPacketWindowMaxCount: Int = 100
+    // Keep scanning fully ON when we saw traffic very recently
+    static let bleRecentTrafficForceScanSeconds: TimeInterval = 10.0
     static let bleThreadSleepWriteShortDelaySeconds: TimeInterval = 0.05
     static let bleExpectedWritePerFragmentMs: Int = 8
     static let bleExpectedWriteMaxMs: Int = 2000
@@ -135,6 +137,9 @@ enum TransportConfig {
     static let blePostSubscribeAnnounceDelaySeconds: TimeInterval = 0.05
     static let blePostAnnounceDelaySeconds: TimeInterval = 0.4
     static let bleForceAnnounceMinIntervalSeconds: TimeInterval = 0.15
+
+    // Store-and-forward for directed packets at relays
+    static let bleDirectedSpoolWindowSeconds: TimeInterval = 15.0
 
     // Content hashing / formatting
     static let contentKeyPrefixLength: Int = 256

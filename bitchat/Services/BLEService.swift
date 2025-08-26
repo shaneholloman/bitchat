@@ -124,6 +124,9 @@ final class BLEService: NSObject {
 
     // Backpressure-aware write queue per peripheral
     private var pendingPeripheralWrites: [String: [Data]] = [:]
+    // Store-and-forward for directed messages when we have no links
+    // Keyed by recipient short peerID -> messageID -> (packet, enqueuedAt)
+    private var pendingDirectedRelays: [String: [String: (packet: BitchatPacket, enqueuedAt: Date)]] = [:]
     
     // MARK: - Maintenance Timer
     
@@ -1061,13 +1064,21 @@ final class BLEService: NSObject {
         }
 
         // For broadcast (no directed peer) and non-fragment, choose a subset deterministically
+        // Special-case announces: do NOT subset to maximize reach for presence
         var selectedPeripheralIDs = Set(allowedPeripheralIDs)
         var selectedCentralIDs = Set(allowedCentralIDs)
-        if directedOnlyPeer == nil && packet.type != MessageType.fragment.rawValue {
+        if directedOnlyPeer == nil && packet.type != MessageType.fragment.rawValue && packet.type != MessageType.announce.rawValue {
             let kp = subsetSizeForFanout(allowedPeripheralIDs.count)
             let kc = subsetSizeForFanout(allowedCentralIDs.count)
             selectedPeripheralIDs = selectDeterministicSubset(ids: allowedPeripheralIDs, k: kp, seed: messageID)
             selectedCentralIDs = selectDeterministicSubset(ids: allowedCentralIDs, k: kc, seed: messageID)
+        }
+
+        // If directed and we currently have no links to forward on, spool for a short window
+        if let only = directedOnlyPeer,
+           selectedPeripheralIDs.isEmpty && selectedCentralIDs.isEmpty,
+           (packet.type == MessageType.noiseEncrypted.rawValue || packet.type == MessageType.noiseHandshake.rawValue) {
+            spoolDirectedPacket(packet, recipientPeerID: only)
         }
 
         // Writes to selected connected peripherals
@@ -1084,6 +1095,43 @@ final class BLEService: NSObject {
             if !targets.isEmpty {
                 _ = peripheralManager?.updateValue(data, for: ch, onSubscribedCentrals: targets)
             }
+        }
+    }
+
+    // MARK: - Directed store-and-forward
+    private func spoolDirectedPacket(_ packet: BitchatPacket, recipientPeerID: String) {
+        let msgID = makeMessageID(for: packet)
+        collectionsQueue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            var byMsg = self.pendingDirectedRelays[recipientPeerID] ?? [:]
+            if byMsg[msgID] == nil {
+                byMsg[msgID] = (packet: packet, enqueuedAt: Date())
+                self.pendingDirectedRelays[recipientPeerID] = byMsg
+                SecureLogger.log("🧳 Spooling directed packet for \(recipientPeerID) mid=\(msgID.prefix(8))…", category: SecureLogger.session, level: .debug)
+            }
+        }
+    }
+
+    private func flushDirectedSpool() {
+        // Move items out and attempt broadcast; if still no links, they'll be re-spooled
+        let toSend: [(String, BitchatPacket)] = collectionsQueue.sync(flags: .barrier) {
+            var out: [(String, BitchatPacket)] = []
+            let now = Date()
+            for (recipient, dict) in pendingDirectedRelays {
+                var remaining: [String: (packet: BitchatPacket, enqueuedAt: Date)] = [:]
+                for (msgID, entry) in dict {
+                    if now.timeIntervalSince(entry.enqueuedAt) <= TransportConfig.bleDirectedSpoolWindowSeconds {
+                        out.append((recipient, entry.packet))
+                    }
+                }
+                // Clear recipient bucket; will be re-spooled if still no links
+                pendingDirectedRelays[recipient] = remaining
+            }
+            return out
+        }
+        guard !toSend.isEmpty else { return }
+        for (_, packet) in toSend {
+            messageQueue.async { [weak self] in self?.broadcastPacket(packet) }
         }
     }
     
@@ -1478,6 +1526,14 @@ final class BLEService: NSObject {
             // Reciprocate announce for bidirectional discovery
             // Force send to ensure the peer receives our announce
             sendAnnounce(forceSend: true)
+        }
+
+        // Afterglow: on first-seen peers, schedule a short re-announce to push presence one more hop
+        if isNewPeer {
+            let delay = Double.random(in: 0.3...0.6)
+            messageQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.sendAnnounce(forceSend: true)
+            }
         }
     }
     
@@ -1891,6 +1947,11 @@ final class BLEService: NSObject {
         if maintenanceCounter % 3 == 0 {
             performCleanup()
         }
+
+        // Attempt to flush any spooled directed messages periodically (~every 5 seconds)
+        if maintenanceCounter % 2 == 1 {
+            flushDirectedSpool()
+        }
         
         // No rotating alias: nothing to refresh
         
@@ -1989,6 +2050,15 @@ final class BLEService: NSObject {
             if !self.ingressByMessageID.isEmpty {
                 self.ingressByMessageID = self.ingressByMessageID.filter { $0.value.timestamp >= cutoff }
             }
+            // Clean expired directed spooled items
+            if !self.pendingDirectedRelays.isEmpty {
+                var cleaned: [String: [String: (packet: BitchatPacket, enqueuedAt: Date)]] = [:]
+                for (recipient, dict) in self.pendingDirectedRelays {
+                    let pruned = dict.filter { now.timeIntervalSince($0.value.enqueuedAt) <= TransportConfig.bleDirectedSpoolWindowSeconds }
+                    if !pruned.isEmpty { cleaned[recipient] = pruned }
+                }
+                self.pendingDirectedRelays = cleaned
+            }
         }
     }
 
@@ -2000,7 +2070,13 @@ final class BLEService: NSObject {
         #else
         let active = true
         #endif
-        let shouldDuty = dutyEnabled && active && connectedCount > 0
+        // Force full-time scanning if we have very few neighbors or very recent traffic
+        let hasRecentTraffic: Bool = collectionsQueue.sync {
+            let cutoff = Date().addingTimeInterval(-TransportConfig.bleRecentTrafficForceScanSeconds)
+            return recentPacketTimestamps.contains(where: { $0 >= cutoff })
+        }
+        let forceScanOn = (connectedCount <= 2) || hasRecentTraffic
+        let shouldDuty = dutyEnabled && active && connectedCount > 0 && !forceScanOn
         if shouldDuty {
             if scanDutyTimer == nil {
                 // Start timer to toggle scanning on/off
@@ -2495,6 +2571,8 @@ extension BLEService: CBPeripheralDelegate {
             // Send announce after subscription is confirmed (force send for new connection)
             messageQueue.asyncAfter(deadline: .now() + TransportConfig.blePostSubscribeAnnounceDelaySeconds) { [weak self] in
                 self?.sendAnnounce(forceSend: true)
+                // Try flushing any spooled directed packets now that we have a link
+                self?.flushDirectedSpool()
             }
         } else {
             SecureLogger.log("⚠️ Characteristic does not support notifications", category: SecureLogger.session, level: .warning)
@@ -2657,6 +2735,8 @@ extension BLEService: CBPeripheralManagerDelegate {
         // Send announce to the newly subscribed central after a small delay to avoid overwhelming
         messageQueue.asyncAfter(deadline: .now() + TransportConfig.blePostAnnounceDelaySeconds) { [weak self] in
             self?.sendAnnounce(forceSend: true)
+            // Flush any spooled directed packets now that we have a central subscribed
+            self?.flushDirectedSpool()
         }
     }
     
