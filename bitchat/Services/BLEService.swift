@@ -1118,14 +1118,13 @@ final class BLEService: NSObject {
             var out: [(String, BitchatPacket)] = []
             let now = Date()
             for (recipient, dict) in pendingDirectedRelays {
-                var remaining: [String: (packet: BitchatPacket, enqueuedAt: Date)] = [:]
-                for (msgID, entry) in dict {
+                for (_, entry) in dict {
                     if now.timeIntervalSince(entry.enqueuedAt) <= TransportConfig.bleDirectedSpoolWindowSeconds {
                         out.append((recipient, entry.packet))
                     }
                 }
-                // Clear recipient bucket; will be re-spooled if still no links
-                pendingDirectedRelays[recipient] = remaining
+                // Clear recipient bucket; items will be re-spooled if still no links
+                pendingDirectedRelays.removeValue(forKey: recipient)
             }
             return out
         }
