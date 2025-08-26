@@ -1247,6 +1247,12 @@ struct ContentView: View {
                                         .font(.system(size: 14))
                                         .foregroundColor(textColor)
                                         .accessibilityLabel("Connected via mesh")
+                                case .meshReachable:
+                                    // Antenna icon for reachable via mesh (not directly connected)
+                                    Image(systemName: "antenna.radiowaves.left.and.right")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(textColor)
+                                        .accessibilityLabel("Reachable via mesh")
                                 case .nostrAvailable:
                                     // Purple globe for Nostr
                                     Image(systemName: "globe")
