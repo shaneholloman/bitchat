@@ -1831,28 +1831,39 @@ final class BLEService: NSObject {
         let now = Date()
         var disconnectedPeers: [String] = []
         
+        var removedOfflineCount = 0
         collectionsQueue.sync(flags: .barrier) {
             for (peerID, peer) in peers {
-                if peer.isConnected && now.timeIntervalSince(peer.lastSeen) > TransportConfig.blePeerInactivityTimeoutSeconds {
+                let age = now.timeIntervalSince(peer.lastSeen)
+                let retention: TimeInterval = peer.isVerifiedNickname ? TransportConfig.bleReachabilityRetentionVerifiedSeconds : TransportConfig.bleReachabilityRetentionUnverifiedSeconds
+                if peer.isConnected && age > TransportConfig.blePeerInactivityTimeoutSeconds {
                     // Check if we still have an active BLE connection to this peer
                     let hasPeripheralConnection = peerToPeripheralUUID[peerID] != nil &&
                                                  peripherals[peerToPeripheralUUID[peerID]!]?.isConnected == true
                     let hasCentralConnection = centralToPeerID.values.contains(peerID)
                     
-                    // Only remove if we don't have an active BLE connection
+                    // If direct link is gone, mark as not connected (retain entry for reachability)
                     if !hasPeripheralConnection && !hasCentralConnection {
-                        // Remove the peer completely (they'll be re-added when they reconnect)
-                        SecureLogger.log("⏱️ Peer timed out (no packets for 20s): \(peerID) (\(peer.nickname))",
-                                       category: SecureLogger.session, level: .debug)
-                        peers.removeValue(forKey: peerID)
+                        var updated = peer
+                        updated.isConnected = false
+                        peers[peerID] = updated
                         disconnectedPeers.append(peerID)
+                    }
+                }
+                // Cleanup: remove peers that are not connected and past reachability retention
+                if !peer.isConnected {
+                    if age > retention {
+                        SecureLogger.log("🗑️ Removing stale peer after reachability window: \(peerID) (\(peer.nickname))",
+                                         category: SecureLogger.session, level: .debug)
+                        peers.removeValue(forKey: peerID)
+                        removedOfflineCount += 1
                     }
                 }
             }
         }
         
-        // Update UI if any peers were disconnected
-        if !disconnectedPeers.isEmpty {
+        // Update UI if there were direct disconnections or offline removals
+        if !disconnectedPeers.isEmpty || removedOfflineCount > 0 {
             notifyUI { [weak self] in
                 guard let self = self else { return }
                 
@@ -2198,9 +2209,12 @@ func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeriph
         if let peerID = peerID {
             peerToPeripheralUUID.removeValue(forKey: peerID)
             
-            // Remove peer completely (they'll be re-added when they reconnect and announce)
-            _ = collectionsQueue.sync(flags: .barrier) {
-                peers.removeValue(forKey: peerID)
+            // Do not remove peer; mark as not connected but retain for reachability
+            collectionsQueue.sync(flags: .barrier) {
+                if var info = peers[peerID] {
+                    info.isConnected = false
+                    peers[peerID] = info
+                }
             }
         }
         
@@ -2215,7 +2229,7 @@ func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeriph
         // Attempt to fill freed slot from queue
         bleQueue.async { [weak self] in self?.tryConnectFromQueue() }
         
-        // Notify delegate about disconnection on main thread
+        // Notify delegate about disconnection on main thread (direct link dropped)
         notifyUI { [weak self] in
             guard let self = self else { return }
             
@@ -2586,9 +2600,12 @@ extension BLEService: CBPeripheralManagerDelegate {
         // Find and disconnect the peer associated with this central
         let centralUUID = central.identifier.uuidString
         if let peerID = centralToPeerID[centralUUID] {
-            // Remove peer completely (they'll be re-added when they reconnect)
-            _ = collectionsQueue.sync(flags: .barrier) {
-                peers.removeValue(forKey: peerID)
+            // Mark peer as not connected; retain for reachability
+            collectionsQueue.sync(flags: .barrier) {
+                if var info = peers[peerID] {
+                    info.isConnected = false
+                    peers[peerID] = info
+                }
             }
             
             // Clean up mappings

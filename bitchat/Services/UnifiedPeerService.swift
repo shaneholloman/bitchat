@@ -74,8 +74,8 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
         var connected: Set<String> = []
         var addedPeerIDs: Set<String> = []
         
-        // Phase 1: Add all connected mesh peers
-        for peerInfo in meshPeers where peerInfo.isConnected {
+        // Phase 1: Add all mesh peers (connected and reachable)
+        for peerInfo in meshPeers {
             let peerID = peerInfo.id
             guard peerID != meshService.myPeerID else { continue }  // Never add self
             
@@ -85,7 +85,7 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
             )
             
             enrichedPeers.append(peer)
-            connected.insert(peerID)
+            if peer.isConnected { connected.insert(peerID) }
             addedPeerIDs.insert(peerID)
             
             // Update fingerprint cache
@@ -117,14 +117,12 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
         
         // Phase 3: Sort peers
         enrichedPeers.sort { lhs, rhs in
-            // Connected first
-            if lhs.isConnected != rhs.isConnected {
-                return lhs.isConnected
-            }
-            // Then favorites
-            if lhs.isFavorite != rhs.isFavorite {
-                return lhs.isFavorite
-            }
+            // Connectivity rank: connected > reachable > others
+            func rank(_ p: BitchatPeer) -> Int { p.isConnected ? 2 : (p.isReachable ? 1 : 0) }
+            let lr = rank(lhs), rr = rank(rhs)
+            if lr != rr { return lr > rr }
+            // Then favorites inside same rank
+            if lhs.isFavorite != rhs.isFavorite { return lhs.isFavorite }
             // Finally alphabetical
             return lhs.displayName < rhs.displayName
         }
@@ -164,12 +162,21 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
         peerInfo: TransportPeerSnapshot,
         favorites: [Data: FavoritesPersistenceService.FavoriteRelationship]
     ) -> BitchatPeer {
+        // Determine reachability based on lastSeen and identity trust
+        let now = Date()
+        let fingerprint = peerInfo.noisePublicKey?.sha256Fingerprint()
+        let isVerified = fingerprint.map { SecureIdentityStateManager.shared.isVerified(fingerprint: $0) } ?? false
+        let isFav = peerInfo.noisePublicKey.flatMap { favorites[$0]?.isFavorite } ?? false
+        let retention: TimeInterval = (isVerified || isFav) ? TransportConfig.bleReachabilityRetentionVerifiedSeconds : TransportConfig.bleReachabilityRetentionUnverifiedSeconds
+        let isReachable = now.timeIntervalSince(peerInfo.lastSeen) <= retention
+
         var peer = BitchatPeer(
             id: peerInfo.id,
             noisePublicKey: peerInfo.noisePublicKey ?? Data(),
             nickname: peerInfo.nickname,
             lastSeen: peerInfo.lastSeen,
-            isConnected: true
+            isConnected: peerInfo.isConnected,
+            isReachable: isReachable
         )
         
         // Check for favorite status
@@ -216,7 +223,8 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
             noisePublicKey: favorite.peerNoisePublicKey,
             nickname: favorite.peerNickname,
             lastSeen: favorite.lastUpdated,
-            isConnected: false
+            isConnected: false,
+            isReachable: false
         )
         
         peer.favoriteStatus = favorite

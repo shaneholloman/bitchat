@@ -72,6 +72,9 @@ enum TransportConfig {
     static let bleRSSIConnectedThreshold: Int = -85
     static let bleRSSIHighTimeoutThreshold: Int = -80
     static let blePeerInactivityTimeoutSeconds: TimeInterval = 20.0
+    // How long to retain a peer as "reachable" (not directly connected) since lastSeen
+    static let bleReachabilityRetentionVerifiedSeconds: TimeInterval = 600.0   // 10 minutes for verified/favorites
+    static let bleReachabilityRetentionUnverifiedSeconds: TimeInterval = 120.0 // 2 minutes for unknown/unverified
     static let bleFragmentLifetimeSeconds: TimeInterval = 30.0
     static let bleIngressRecordLifetimeSeconds: TimeInterval = 3.0
     static let bleConnectTimeoutBackoffWindowSeconds: TimeInterval = 120.0
