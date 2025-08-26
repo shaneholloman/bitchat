@@ -85,7 +85,9 @@ enum TransportConfig {
     static let bleThreadSleepWriteShortDelaySeconds: TimeInterval = 0.05
     static let bleExpectedWritePerFragmentMs: Int = 8
     static let bleExpectedWriteMaxMs: Int = 2000
-    static let bleFragmentSpacingMs: Int = 6
+    // Faster fragment pacing; use slightly tighter spacing for directed trains
+    static let bleFragmentSpacingMs: Int = 5
+    static let bleFragmentSpacingDirectedMs: Int = 4
     static let bleAnnounceIntervalSeconds: TimeInterval = 4.0
     static let bleDutyOnDurationDense: TimeInterval = 3.0
     static let bleDutyOffDurationDense: TimeInterval = 15.0

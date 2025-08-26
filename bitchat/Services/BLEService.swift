@@ -104,6 +104,10 @@ final class BLEService: NSObject {
     private var pendingMessagesAfterHandshake: [String: [(content: String, messageID: String)]] = [:]
     // Noise typed payloads (ACKs, read receipts, etc.) pending handshake
     private var pendingNoisePayloadsAfterHandshake: [String: [Data]] = [:]
+    // Keep a tiny buffer of the last few unique announces we've seen (by sender)
+    private var recentAnnounceBySender: [String: BitchatPacket] = [:]
+    private var recentAnnounceOrder: [String] = []
+    private let recentAnnounceBufferCap = 3
     
     // Queue for notifications that failed due to full queue
     private var pendingNotifications: [(data: Data, centrals: [CBCentral]?)] = []
@@ -1133,6 +1137,21 @@ final class BLEService: NSObject {
             messageQueue.async { [weak self] in self?.broadcastPacket(packet) }
         }
     }
+
+    private func rebroadcastRecentAnnounces() {
+        // Snapshot sender order to preserve ordering and avoid holding locks while sending
+        let packets: [BitchatPacket] = collectionsQueue.sync {
+            recentAnnounceOrder.compactMap { recentAnnounceBySender[$0] }
+        }
+        guard !packets.isEmpty else { return }
+        for (idx, pkt) in packets.enumerated() {
+            // Stagger slightly to avoid bursts
+            let delayMs = idx * 20
+            messageQueue.asyncAfter(deadline: .now() + .milliseconds(delayMs)) { [weak self] in
+                self?.broadcastPacket(pkt)
+            }
+        }
+    }
     
     private func sendData(_ data: Data, to peripheral: CBPeripheral) {
         // Fire-and-forget: Simple send without complex fallback logic
@@ -1198,7 +1217,8 @@ final class BLEService: NSObject {
                 ttl: packet.ttl
             )
             // Pace fragments with small jitter to avoid bursts
-            let delayMs = index * TransportConfig.bleFragmentSpacingMs // ~6ms spacing per fragment
+            let perFragMs = (directedOnlyPeer != nil || packet.recipientID != nil) ? TransportConfig.bleFragmentSpacingDirectedMs : TransportConfig.bleFragmentSpacingMs
+            let delayMs = index * perFragMs
             messageQueue.asyncAfter(deadline: .now() + .milliseconds(delayMs)) { [weak self] in
                 self?.broadcastPacket(fragmentPacket)
             }
@@ -1359,6 +1379,7 @@ final class BLEService: NSObject {
                 isDirectedEncrypted: (packet.type == MessageType.noiseEncrypted.rawValue) && (packet.recipientID != nil),
                 isDirectedFragment: packet.type == MessageType.fragment.rawValue && packet.recipientID != nil,
                 isHandshake: packet.type == MessageType.noiseHandshake.rawValue,
+                isAnnounce: packet.type == MessageType.announce.rawValue,
                 degree: degree,
                 highDegreeThreshold: highDegreeThreshold
             )
@@ -1496,6 +1517,20 @@ final class BLEService: NSObject {
                 signingPublicKey: announcement.signingPublicKey,
                 claimedNickname: announcement.nickname
             )
+        }
+
+        // Record this announce for lightweight rebroadcast buffer (exclude self)
+        if peerID != myPeerID {
+            collectionsQueue.async(flags: .barrier) { [weak self] in
+                guard let self = self else { return }
+                self.recentAnnounceBySender[peerID] = packet
+                if !self.recentAnnounceOrder.contains(peerID) { self.recentAnnounceOrder.append(peerID) }
+                // Trim to cap, oldest first
+                while self.recentAnnounceOrder.count > self.recentAnnounceBufferCap {
+                    let victim = self.recentAnnounceOrder.removeFirst()
+                    self.recentAnnounceBySender.removeValue(forKey: victim)
+                }
+            }
         }
 
         // Notify UI on main thread
@@ -2572,6 +2607,8 @@ extension BLEService: CBPeripheralDelegate {
                 self?.sendAnnounce(forceSend: true)
                 // Try flushing any spooled directed packets now that we have a link
                 self?.flushDirectedSpool()
+                // Rebroadcast a couple of recent announces to seed the new link
+                self?.rebroadcastRecentAnnounces()
             }
         } else {
             SecureLogger.log("⚠️ Characteristic does not support notifications", category: SecureLogger.session, level: .warning)
@@ -2736,6 +2773,8 @@ extension BLEService: CBPeripheralManagerDelegate {
             self?.sendAnnounce(forceSend: true)
             // Flush any spooled directed packets now that we have a central subscribed
             self?.flushDirectedSpool()
+            // Rebroadcast a couple of recent announces to seed the new link
+            self?.rebroadcastRecentAnnounces()
         }
     }
     

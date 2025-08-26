@@ -15,6 +15,7 @@ struct RelayController {
                        isDirectedEncrypted: Bool,
                        isDirectedFragment: Bool,
                        isHandshake: Bool,
+                       isAnnounce: Bool,
                        degree: Int,
                        highDegreeThreshold: Int) -> RelayDecision {
         // Suppress obvious non-relays
@@ -46,7 +47,11 @@ struct RelayController {
         // TTL clamping for broadcast
         // - Dense graphs: keep very low to avoid floods
         // - Sparse graphs: allow slightly longer reach for multi-hop discovery
-        let ttlCap: UInt8 = degree >= highDegreeThreshold ? 3 : 6
+        // - Announces in sparse graphs get a bit more headroom
+        let ttlCap: UInt8 = {
+            if degree >= highDegreeThreshold { return 3 }
+            return isAnnounce ? 7 : 6
+        }()
         let clamped = max(1, min(ttl, ttlCap))
         let newTTL = clamped &- 1
 
