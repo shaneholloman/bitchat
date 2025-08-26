@@ -4,13 +4,12 @@ import Foundation
 @MainActor
 final class MessageRouter {
     private let mesh: Transport
-    private let nostr: NostrTransport
+    private let nostr: NostrOutboxService
     private var outbox: [String: [(content: String, nickname: String, messageID: String)]] = [:] // peerID -> queued messages
 
-    init(mesh: Transport, nostr: NostrTransport) {
+    init(mesh: Transport, nostr: NostrOutboxService) {
         self.mesh = mesh
         self.nostr = nostr
-        self.nostr.senderPeerID = mesh.myPeerID
 
         // Observe favorites changes to learn Nostr mapping and flush queued messages
         NotificationCenter.default.addObserver(
@@ -46,7 +45,7 @@ final class MessageRouter {
         } else if canSendViaNostr(peerID: peerID) {
             SecureLogger.log("Routing PM via Nostr to \(peerID.prefix(8))… id=\(messageID.prefix(8))…",
                             category: SecureLogger.session, level: .debug)
-            nostr.sendPrivateMessage(content, to: peerID, recipientNickname: recipientNickname, messageID: messageID)
+            nostr.sendPrivate(content, to: peerID, recipientNickname: recipientNickname, messageID: messageID)
         } else {
             // Queue for later (when mesh connects or Nostr mapping appears)
             if outbox[peerID] == nil { outbox[peerID] = [] }

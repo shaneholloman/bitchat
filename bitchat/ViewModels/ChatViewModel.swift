@@ -462,10 +462,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         self.commandProcessor = CommandProcessor()
         self.privateChatManager = PrivateChatManager(meshService: meshService, readReceiptTracker: readReceiptTracker)
         self.unifiedPeerService = UnifiedPeerService(meshService: meshService)
-        let nostrTransport = NostrTransport()
-        self.messageRouter = MessageRouter(mesh: meshService, nostr: nostrTransport)
         self.nostrInbox = NostrInboxService()
         self.nostrOutbox = NostrOutboxService(meshService: meshService)
+        self.messageRouter = MessageRouter(mesh: meshService, nostr: self.nostrOutbox)
         // Route receipts from PrivateChatManager through MessageRouter
         self.privateChatManager.messageRouter = self.messageRouter
         self.autocompleteService = AutocompleteService()
