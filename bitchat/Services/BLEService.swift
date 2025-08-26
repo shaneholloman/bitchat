@@ -102,6 +102,8 @@ final class BLEService: NSObject {
     
     // Queue for messages pending handshake completion
     private var pendingMessagesAfterHandshake: [String: [(content: String, messageID: String)]] = [:]
+    // Noise typed payloads (ACKs, read receipts, etc.) pending handshake
+    private var pendingNoisePayloadsAfterHandshake: [String: [Data]] = [:]
     
     // Queue for notifications that failed due to full queue
     private var pendingNotifications: [(data: Data, centrals: [CBCentral]?)] = []
@@ -307,6 +309,7 @@ final class BLEService: NSObject {
             // Send any messages that were queued during handshake
             self?.messageQueue.async { [weak self] in
                 self?.sendPendingMessagesAfterHandshake(for: peerID)
+                self?.sendPendingNoisePayloadsAfterHandshake(for: peerID)
             }
         }
         
@@ -502,6 +505,18 @@ final class BLEService: NSObject {
         return collectionsQueue.sync { peers[shortID]?.isConnected ?? false }
     }
 
+    func isPeerReachable(_ peerID: String) -> Bool {
+        // Accept both 16-hex short IDs and 64-hex Noise keys
+        let shortID: String = {
+            if peerID.count == 64, let key = Data(hexString: peerID) {
+                return PeerIDUtils.derivePeerID(fromPublicKey: key)
+            }
+            return peerID
+        }()
+        // A peer is reachable if we have a recent entry for it (connected or recently seen via mesh)
+        return collectionsQueue.sync { peers[shortID] != nil }
+    }
+
     func peerNickname(peerID: String) -> String? {
         collectionsQueue.sync {
             guard let peer = peers[peerID], peer.isConnected else { return nil }
@@ -541,43 +556,41 @@ final class BLEService: NSObject {
     }
     
     func sendReadReceipt(_ receipt: ReadReceipt, to peerID: String) {
-        // Send encrypted read receipt
-        guard noiseService.hasSession(with: peerID) else {
-            SecureLogger.log("Cannot send read receipt - no Noise session with \(peerID)", category: SecureLogger.noise, level: .warning)
-            return
-        }
-        
-        SecureLogger.log("📤 Sending READ receipt for message \(receipt.originalMessageID) to \(peerID)", 
-                        category: SecureLogger.session, level: .debug)
-        
-        // Create read receipt payload: [type byte] + [message ID]
-        var receiptPayload = Data([NoisePayloadType.readReceipt.rawValue])
-        receiptPayload.append(contentsOf: receipt.originalMessageID.utf8)
-        
-        do {
-            let encrypted = try noiseService.encrypt(receiptPayload, for: peerID)
-            let packet = BitchatPacket(
-                type: MessageType.noiseEncrypted.rawValue,
-                senderID: Data(hexString: myPeerID) ?? Data(),
-                recipientID: Data(hexString: peerID),
-                timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
-                payload: encrypted,
-                signature: nil,
-                ttl: messageTTL
-            )
-            
-            // If already on messageQueue, call directly
-            if DispatchQueue.getSpecific(key: messageQueueKey) != nil {
-                broadcastPacket(packet)
-            } else {
-                messageQueue.async { [weak self] in
-                    self?.broadcastPacket(packet)
+        // Create typed payload: [type byte] + [message ID]
+        var payload = Data([NoisePayloadType.readReceipt.rawValue])
+        payload.append(contentsOf: receipt.originalMessageID.utf8)
+
+        if noiseService.hasEstablishedSession(with: peerID) {
+            SecureLogger.log("📤 Sending READ receipt for message \(receipt.originalMessageID) to \(peerID)", 
+                            category: SecureLogger.session, level: .debug)
+            do {
+                let encrypted = try noiseService.encrypt(payload, for: peerID)
+                let packet = BitchatPacket(
+                    type: MessageType.noiseEncrypted.rawValue,
+                    senderID: Data(hexString: myPeerID) ?? Data(),
+                    recipientID: Data(hexString: peerID),
+                    timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
+                    payload: encrypted,
+                    signature: nil,
+                    ttl: messageTTL
+                )
+                if DispatchQueue.getSpecific(key: messageQueueKey) != nil {
+                    broadcastPacket(packet)
+                } else {
+                    messageQueue.async { [weak self] in self?.broadcastPacket(packet) }
                 }
+            } catch {
+                SecureLogger.log("Failed to send read receipt: \(error)", category: SecureLogger.noise, level: .error)
             }
-            
-            // Read receipt sent
-        } catch {
-            SecureLogger.log("Failed to send read receipt: \(error)", category: SecureLogger.noise, level: .error)
+        } else {
+            // Queue for after handshake and initiate if needed
+            collectionsQueue.async(flags: .barrier) { [weak self] in
+                guard let self = self else { return }
+                self.pendingNoisePayloadsAfterHandshake[peerID, default: []].append(payload)
+            }
+            if !noiseService.hasSession(with: peerID) { initiateNoiseHandshake(with: peerID) }
+            SecureLogger.log("🕒 Queued READ receipt for \(peerID) until handshake completes", 
+                            category: SecureLogger.session, level: .debug)
         }
     }
     
@@ -1720,31 +1733,64 @@ final class BLEService: NSObject {
     }
     
     func sendDeliveryAck(for messageID: String, to peerID: String) {
-        // Send encrypted delivery ACK
-        guard noiseService.hasSession(with: peerID) else {
-            SecureLogger.log("Cannot send ACK - no Noise session with \(peerID)", category: SecureLogger.noise, level: .warning)
-            return
+        // Create typed payload: [type byte] + [message ID]
+        var payload = Data([NoisePayloadType.delivered.rawValue])
+        payload.append(contentsOf: messageID.utf8)
+
+        if noiseService.hasEstablishedSession(with: peerID) {
+            do {
+                let encrypted = try noiseService.encrypt(payload, for: peerID)
+                let packet = BitchatPacket(
+                    type: MessageType.noiseEncrypted.rawValue,
+                    senderID: Data(hexString: myPeerID) ?? Data(),
+                    recipientID: Data(hexString: peerID),
+                    timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
+                    payload: encrypted,
+                    signature: nil,
+                    ttl: messageTTL
+                )
+                broadcastPacket(packet)
+            } catch {
+                SecureLogger.log("Failed to send delivery ACK: \(error)", category: SecureLogger.noise, level: .error)
+            }
+        } else {
+            // Queue for after handshake and initiate if needed
+            collectionsQueue.async(flags: .barrier) { [weak self] in
+                guard let self = self else { return }
+                self.pendingNoisePayloadsAfterHandshake[peerID, default: []].append(payload)
+            }
+            if !noiseService.hasSession(with: peerID) { initiateNoiseHandshake(with: peerID) }
+            SecureLogger.log("🕒 Queued DELIVERED ack for \(peerID) until handshake completes", 
+                            category: SecureLogger.session, level: .debug)
         }
-        
-        // Create ACK payload: [type byte] + [message ID]
-        var ackPayload = Data([NoisePayloadType.delivered.rawValue])
-        ackPayload.append(contentsOf: messageID.utf8)
-        
-        do {
-            let encrypted = try noiseService.encrypt(ackPayload, for: peerID)
-            let packet = BitchatPacket(
-                type: MessageType.noiseEncrypted.rawValue,
-                senderID: Data(hexString: myPeerID) ?? Data(),
-                recipientID: Data(hexString: peerID),
-                timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
-                payload: encrypted,
-                signature: nil,
-                ttl: messageTTL
-            )
-            broadcastPacket(packet)
-            // Delivery ACK sent
-        } catch {
-            SecureLogger.log("Failed to send delivery ACK: \(error)", category: SecureLogger.noise, level: .error)
+    }
+
+    private func sendPendingNoisePayloadsAfterHandshake(for peerID: String) {
+        let payloads = collectionsQueue.sync(flags: .barrier) { () -> [Data] in
+            let list = pendingNoisePayloadsAfterHandshake[peerID] ?? []
+            pendingNoisePayloadsAfterHandshake.removeValue(forKey: peerID)
+            return list
+        }
+        guard !payloads.isEmpty else { return }
+        SecureLogger.log("📤 Sending \(payloads.count) pending noise payloads to \(peerID) after handshake",
+                        category: SecureLogger.session, level: .debug)
+        for payload in payloads {
+            do {
+                let encrypted = try noiseService.encrypt(payload, for: peerID)
+                let packet = BitchatPacket(
+                    type: MessageType.noiseEncrypted.rawValue,
+                    senderID: Data(hexString: myPeerID) ?? Data(),
+                    recipientID: Data(hexString: peerID),
+                    timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
+                    payload: encrypted,
+                    signature: nil,
+                    ttl: messageTTL
+                )
+                broadcastPacket(packet)
+            } catch {
+                SecureLogger.log("❌ Failed to send pending noise payload to \(peerID): \(error)", 
+                                category: SecureLogger.noise, level: .error)
+            }
         }
     }
     

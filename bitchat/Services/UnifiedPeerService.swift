@@ -143,8 +143,11 @@ class UnifiedPeerService: ObservableObject, TransportPeerEventsDelegate {
             }
         }
         
-        // Phase 5: Update published properties
-        self.peers = enrichedPeers
+        // Phase 5: Filter out offline non-mutual peers and update published properties
+        let filtered = enrichedPeers.filter { p in
+            p.isConnected || p.isReachable || p.isMutualFavorite
+        }
+        self.peers = filtered
         self.connectedPeerIDs = connected
         self.favorites = favoritesList
         self.mutualFavorites = mutualsList
