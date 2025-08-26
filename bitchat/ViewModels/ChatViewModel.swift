@@ -358,6 +358,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private var currentGeohash: String? = nil
     private var geoNicknames: [String: String] = [:] // pubkeyHex(lowercased) -> nickname
     private let nostrInbox = NostrInboxService()
+    private var nostrOutbox: NostrOutboxService
     
     // MARK: - Caches
     
@@ -463,6 +464,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         self.unifiedPeerService = UnifiedPeerService(meshService: meshService)
         let nostrTransport = NostrTransport()
         self.messageRouter = MessageRouter(mesh: meshService, nostr: nostrTransport)
+        self.nostrOutbox = NostrOutboxService(meshService: meshService)
         // Route receipts from PrivateChatManager through MessageRouter
         self.privateChatManager.messageRouter = self.messageRouter
         self.autocompleteService = AutocompleteService()
@@ -707,6 +709,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         self.messageRouter = messageRouter
         self.readReceiptTracker = readReceiptTracker
         self.autocompleteService = AutocompleteService()
+        self.nostrOutbox = NostrOutboxService(meshService: meshService)
 
         // Wire up dependencies
         self.commandProcessor.chatViewModel = self
@@ -986,9 +989,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                     let messageId = pm.messageID
                     // Send delivery ACK immediately (once per message ID)
                     if !self.sentGeoDeliveryAcks.contains(messageId) {
-                        let nt = NostrTransport()
-                        nt.senderPeerID = self.meshService.myPeerID
-                        nt.sendDeliveryAckGeohash(for: messageId, toRecipientHex: senderPubkey, from: id)
+                        self.nostrOutbox.sendGeohashDeliveredAck(messageID: messageId, toRecipientHex: senderPubkey, from: id)
                         self.sentGeoDeliveryAcks.insert(messageId)
                     }
                     // Dedup storage
@@ -1024,9 +1025,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                     if isViewing {
                         // pared back: omit pre-send READ log
                         if !wasReadBefore {
-                            let nt = NostrTransport()
-                            nt.senderPeerID = self.meshService.myPeerID
-                            nt.sendReadReceiptGeohash(messageId, toRecipientHex: senderPubkey, from: id)
+                            self.nostrOutbox.sendGeohashReadAck(messageID: messageId, toRecipientHex: senderPubkey, from: id)
                             self.readReceiptTracker.insert(messageId)
                         }
                     } else {
@@ -1663,10 +1662,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                                     category: SecureLogger.session, level: .info)
                     // Send delivery ACK immediately (even if duplicate), once per messageID
                     if !self.sentGeoDeliveryAcks.contains(messageId) {
-                        let nostrTransport = NostrTransport()
-                        nostrTransport.senderPeerID = self.meshService.myPeerID
-                    // pared back: omit pre-send log
-                        nostrTransport.sendDeliveryAckGeohash(for: messageId, toRecipientHex: senderPubkey, from: id)
+                        self.nostrOutbox.sendGeohashDeliveredAck(messageID: messageId, toRecipientHex: senderPubkey, from: id)
                         self.sentGeoDeliveryAcks.insert(messageId)
                     }
                     // Duplicate check
@@ -1698,9 +1694,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                     if isViewing {
                         // pared back: omit pre-send READ log
                         if !wasReadBefore {
-                            let nostrTransport = NostrTransport()
-                            nostrTransport.senderPeerID = self.meshService.myPeerID
-                            nostrTransport.sendReadReceiptGeohash(messageId, toRecipientHex: senderPubkey, from: id)
+                            self.nostrOutbox.sendGeohashReadAck(messageID: messageId, toRecipientHex: senderPubkey, from: id)
                             self.readReceiptTracker.insert(messageId)
                         }
                     } else {
@@ -2059,9 +2053,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 }
                 SecureLogger.log("GeoDM: local send mid=\(messageID.prefix(8))… to=\(recipientHex.prefix(8))… conv=\(peerID)",
                                 category: SecureLogger.session, level: .debug)
-                let nostrTransport = NostrTransport()
-                nostrTransport.senderPeerID = meshService.myPeerID
-                nostrTransport.sendPrivateMessageGeohash(content: content, toRecipientHex: recipientHex, from: id, messageID: messageID)
+                self.nostrOutbox.sendGeohashPM(content: content, toRecipientHex: recipientHex, from: id, messageID: messageID)
                 if let msgIdx = privateChats[peerID]?.firstIndex(where: { $0.id == messageID }) {
                     privateChats[peerID]?[msgIdx].deliveryStatus = .sent
                 }
@@ -2773,9 +2765,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 if !readReceiptTracker.contains(message.id) {
                     SecureLogger.log("GeoDM: sending READ for mid=\(message.id.prefix(8))… to=\(recipientHex.prefix(8))…",
                                     category: SecureLogger.session, level: .debug)
-                    let nostrTransport = NostrTransport()
-                    nostrTransport.senderPeerID = meshService.myPeerID
-                    nostrTransport.sendReadReceiptGeohash(message.id, toRecipientHex: recipientHex, from: id)
+                    self.nostrOutbox.sendGeohashReadAck(messageID: message.id, toRecipientHex: recipientHex, from: id)
                     readReceiptTracker.insert(message.id)
                 }
             }
