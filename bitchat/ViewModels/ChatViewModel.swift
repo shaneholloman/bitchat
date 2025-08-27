@@ -586,6 +586,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                         if connected {
                             Task { @MainActor in
                                 self.resubscribeCurrentGeohash()
+                                // Re-init sampling for regional + bookmarked geohashes after reconnect
+                                let regional = LocationChannelManager.shared.availableChannels.map { $0.geohash }
+                                let bookmarks = GeohashBookmarksStore.shared.bookmarks
+                                let union = Array(Set(regional).union(bookmarks))
+                                self.beginGeohashSampling(for: union)
                             }
                         }
                     }
@@ -611,21 +616,41 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             self.switchLocationChannel(to: LocationChannelManager.shared.selectedChannel)
         }
 
-        // Background: keep sampling nearby geohashes for notifications even when sheet is closed
+        // Background: keep sampling nearby geohashes + bookmarks for notifications even when sheet is closed
         LocationChannelManager.shared.$availableChannels
             .receive(on: DispatchQueue.main)
             .sink { [weak self] channels in
                 guard let self = self else { return }
-                let ghs = channels.map { $0.geohash }
+                let regional = channels.map { $0.geohash }
+                let bookmarks = GeohashBookmarksStore.shared.bookmarks
+                let union = Array(Set(regional).union(bookmarks))
                 Task { @MainActor in
-                    self.beginGeohashSampling(for: ghs)
+                    self.beginGeohashSampling(for: union)
                 }
             }
             .store(in: &cancellables)
-        // Kick off initial sampling if we already have channels
-        if !LocationChannelManager.shared.availableChannels.isEmpty {
-            let ghs = LocationChannelManager.shared.availableChannels.map { $0.geohash }
-            Task { @MainActor in self.beginGeohashSampling(for: ghs) }
+
+        // Also observe bookmark changes to update sampling
+        GeohashBookmarksStore.shared.$bookmarks
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] bookmarks in
+                guard let self = self else { return }
+                let regional = LocationChannelManager.shared.availableChannels.map { $0.geohash }
+                let union = Array(Set(regional).union(bookmarks))
+                Task { @MainActor in
+                    self.beginGeohashSampling(for: union)
+                }
+            }
+            .store(in: &cancellables)
+
+        // Kick off initial sampling if we have regional channels or bookmarks
+        do {
+            let regional = LocationChannelManager.shared.availableChannels.map { $0.geohash }
+            let bookmarks = GeohashBookmarksStore.shared.bookmarks
+            let union = Array(Set(regional).union(bookmarks))
+            if !union.isEmpty {
+                Task { @MainActor in self.beginGeohashSampling(for: union) }
+            }
         }
         // Refresh channels once when authorized to seed sampling
         LocationChannelManager.shared.$permissionState
