@@ -1791,17 +1791,27 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: subRelays) { [weak self] event in
                 guard let self = self else { return }
                 guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue else { return }
+                // Compute existing participant count (5-minute window) BEFORE updating
+                let cutoff = Date().addingTimeInterval(-TransportConfig.uiRecentCutoffFiveMinutesSeconds)
+                let existingCount: Int = {
+                    let map = self.geoParticipants[gh] ?? [:]
+                    return map.values.filter { $0 >= cutoff }.count
+                }()
                 // Update participants for this specific geohash
                 self.recordGeoParticipant(pubkeyHex: event.pubkey, geohash: gh)
-                // Notify on new message activity in this geohash (sampling across channels)
+                // Notify only on rising-edge: previously zero people, now someone chats
                 let content = event.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !content.isEmpty else { return }
                 // Respect geohash blocks
                 if SecureIdentityStateManager.shared.isNostrBlocked(pubkeyHexLowercased: event.pubkey.lowercased()) { return }
                 // Skip self identity for this geohash
                 if let my = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh), my.publicKeyHex.lowercased() == event.pubkey.lowercased() { return }
+                // Only trigger when there were zero participants in this geohash recently
+                guard existingCount == 0 else { return }
+                // Avoid notifications for old sampled events when launching or (re)subscribing
+                let eventTime = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+                if Date().timeIntervalSince(eventTime) > 30 { return }
                 // Foreground policy: allow if it's a different geohash than the one currently open
-                // Suppress only when app is active AND we're already in this same geohash channel
                 #if os(iOS)
                 if UIApplication.shared.applicationState == .active {
                     if case .location(let ch) = self.activeChannel, ch.geohash == gh { return }
@@ -4491,14 +4501,10 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                     self.meshService.isPeerConnected(peerID) || self.meshService.isPeerReachable(peerID)
                 }
                 
-                // Check if we have new mesh peers we haven't seen recently
+                // Rising-edge only: previously zero peers, now > 0 peers
                 let currentPeerSet = Set(meshPeers)
-                let newPeers = currentPeerSet.subtracting(self.recentlySeenPeers)
-                // Send notification if:
-                // 1. We have mesh peers (not just Nostr-only)
-                // 2. There are new peers we haven't seen (rising-edge)
-                // 3. We haven't already notified since the last sustained-empty period
-                if meshPeers.count > 0 && !newPeers.isEmpty && !self.hasNotifiedNetworkAvailable {
+                let hadNone = self.recentlySeenPeers.isEmpty
+                if meshPeers.count > 0 && hadNone && !self.hasNotifiedNetworkAvailable {
                     self.hasNotifiedNetworkAvailable = true
                     self.lastNetworkNotificationTime = Date()
                     self.recentlySeenPeers = currentPeerSet
@@ -4507,16 +4513,14 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                                    category: SecureLogger.session, level: .info)
                 }
             } else {
-                // No peers - schedule a graceful reset to avoid refiring on brief drops
-                if self.networkResetTimer == nil {
-                    self.networkResetTimer = Timer.scheduledTimer(withTimeInterval: self.networkResetGraceSeconds, repeats: false) { [weak self] _ in
-                        guard let self = self else { return }
-                        self.hasNotifiedNetworkAvailable = false
-                        self.recentlySeenPeers.removeAll()
-                        self.networkResetTimer = nil
-                        SecureLogger.log("⏳ Mesh empty for \(Int(self.networkResetGraceSeconds))s — reset network notification state", category: SecureLogger.session, level: .debug)
-                    }
+                // No peers — immediately reset to allow next rising-edge to notify
+                self.hasNotifiedNetworkAvailable = false
+                self.recentlySeenPeers.removeAll()
+                if self.networkResetTimer != nil {
+                    self.networkResetTimer?.invalidate()
+                    self.networkResetTimer = nil
                 }
+                SecureLogger.log("⏳ Mesh empty — reset network notification state", category: SecureLogger.session, level: .debug)
             }
             
             // Register ephemeral sessions for all connected peers
@@ -5702,34 +5706,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
 
         guard channelMatches else { return }
 
-        // Background nudge: notify on new activity after inactivity threshold in current channel
-        #if os(iOS)
-        if UIApplication.shared.applicationState != .active {
-            let channelKey: String = {
-                switch activeChannel {
-                case .mesh: return "mesh"
-                case .location(let ch): return "geo:\(ch.geohash)"
-                }
-            }()
-            let now = Date()
-            if let last = lastPublicActivityAt[channelKey], now.timeIntervalSince(last) >= channelInactivityThreshold {
-                // Optional: simple cooldown to avoid duplicate bursts
-                let lastNotified = lastPublicActivityNotifyAt[channelKey] ?? .distantPast
-                if now.timeIntervalSince(lastNotified) >= 60 {
-                    let title = activeChannelDisplayName()
-                    let body = "new chats!"
-                    if case .location(let ch) = activeChannel {
-                        // Attach deep link to open this geohash directly
-                        NotificationService.shared.sendGeohashActivityNotification(geohash: ch.geohash, titlePrefix: title + " ", bodyPreview: body)
-                    } else {
-                        NotificationService.shared.sendLocalNotification(title: title, body: body, identifier: "channel-activity-\(channelKey)-\(now.timeIntervalSince1970)")
-                    }
-                    lastPublicActivityNotifyAt[channelKey] = now
-                }
-            }
-            lastPublicActivityAt[channelKey] = now
-        }
-        #endif
+        // Removed background nudge notification for generic "new chats!"
 
         // Append via batching buffer (skip empty content)
         if !finalMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

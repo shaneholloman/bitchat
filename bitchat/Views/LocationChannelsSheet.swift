@@ -119,13 +119,13 @@ struct LocationChannelsSheet: View {
                         subtitleName: namePart,
                         isSelected: isSelected(channel),
                         titleBold: highlight,
-                        leadingAccessory: {
+                        trailingAccessory: {
                             Button(action: { bookmarks.toggle(channel.geohash) }) {
                                 Image(systemName: bookmarks.isBookmarked(channel.geohash) ? "bookmark.fill" : "bookmark")
                                     .font(.system(size: 14))
                             }
                             .buttonStyle(.plain)
-                            .padding(.trailing, 6)
+                            .padding(.leading, 8)
                         }
                     ) {
                         // Selecting a suggested nearby channel is not a teleport. Persist this.
@@ -216,17 +216,19 @@ struct LocationChannelsSheet: View {
                     let channel = GeohashChannel(level: level, geohash: gh)
                     let coverage = coverageString(forPrecision: gh.count)
                     let subtitle = "#\(gh) • \(coverage)"
+                    let name = bookmarks.bookmarkNames[gh]
                     channelRow(
-                        title: geohashTitleWithCount(for: channel),
+                        title: geohashHashTitleWithCount(gh),
                         subtitlePrefix: subtitle,
+                        subtitleName: name.map { formattedNamePrefix(for: level) + $0 },
                         isSelected: isSelected(channel),
-                        leadingAccessory: {
+                        trailingAccessory: {
                             Button(action: { bookmarks.toggle(gh) }) {
                                 Image(systemName: bookmarks.isBookmarked(gh) ? "bookmark.fill" : "bookmark")
                                     .font(.system(size: 14))
                             }
                             .buttonStyle(.plain)
-                            .padding(.trailing, 6)
+                            .padding(.leading, 8)
                         }
                     ) {
                         // For bookmarked selection, mark teleported based on regional membership
@@ -239,6 +241,7 @@ struct LocationChannelsSheet: View {
                         manager.select(ChannelID.location(channel))
                         isPresented = false
                     }
+                    .onAppear { bookmarks.resolveNameIfNeeded(for: gh) }
                 }
             }
 
@@ -283,11 +286,10 @@ struct LocationChannelsSheet: View {
         isSelected: Bool,
         titleColor: Color? = nil,
         titleBold: Bool = false,
-        @ViewBuilder leadingAccessory: () -> some View = { EmptyView() },
+        @ViewBuilder trailingAccessory: () -> some View = { EmptyView() },
         action: @escaping () -> Void
     ) -> some View {
         HStack(alignment: .center, spacing: 8) {
-            leadingAccessory()
             VStack(alignment: .leading) {
                 // Render title with smaller font for trailing count in parentheses
                 let parts = splitTitleAndCount(title)
@@ -314,6 +316,8 @@ struct LocationChannelsSheet: View {
                                 .font(.system(size: 12, design: .monospaced))
                                 .fontWeight(subtitleNameBold ? .bold : .regular)
                                 .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                     }
                 }
@@ -323,6 +327,7 @@ struct LocationChannelsSheet: View {
                         .font(.system(size: 16, design: .monospaced))
                         .foregroundColor(standardGreen)
                 }
+                trailingAccessory()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -355,10 +360,17 @@ struct LocationChannelsSheet: View {
     }
 
     private func geohashTitleWithCount(for channel: GeohashChannel) -> String {
-        // Use ViewModel's 5-minute activity counts; may be 0 for non-selected channels
+        // Main list: keep level labels (block/neighborhood/city/province/region)
         let count = viewModel.geohashParticipantCount(for: channel.geohash)
         let noun = count == 1 ? "person" : "people"
         return "\(channel.level.displayName.lowercased()) [\(count) \(noun)]"
+    }
+
+    private func geohashHashTitleWithCount(_ geohash: String) -> String {
+        // Bookmarked list: show the #geohash as the main label
+        let count = viewModel.geohashParticipantCount(for: geohash)
+        let noun = count == 1 ? "person" : "people"
+        return "#\(geohash) [\(count) \(noun)]"
     }
 
     private func validateGeohash(_ s: String) -> Bool {
