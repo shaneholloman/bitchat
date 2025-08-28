@@ -382,6 +382,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     @Published var showBluetoothAlert = false
     @Published var bluetoothAlertMessage = ""
     @Published var bluetoothState: CBManagerState = .unknown
+
+    // Presentation state for privacy gating
+    @Published var isLocationChannelsSheetPresented: Bool = false
+    @Published var isAppInfoPresented: Bool = false
+    @Published var showScreenshotPrivacyWarning: Bool = false
     
     // Messages are naturally ephemeral - no persistent storage
     // Persist mesh public timeline across channel switches
@@ -2588,6 +2593,17 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     
     @MainActor
     @objc private func userDidTakeScreenshot() {
+        // Respect privacy: do not broadcast screenshots taken from non-chat sheets
+        if isLocationChannelsSheetPresented {
+            // Show a warning about sharing location screenshots publicly
+            showScreenshotPrivacyWarning = true
+            return
+        }
+        if isAppInfoPresented {
+            // Silently ignore screenshots of app info
+            return
+        }
+
         // Send screenshot notification based on current context
         let screenshotMessage = "* \(nickname) took a screenshot *"
         
@@ -2607,7 +2623,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 }
             }
             
-            // Show local notification immediately as system message
+            // Show local notification immediately as system message (only in chat)
             let localNotification = BitchatMessage(
                 sender: "system",
                 content: "you took a screenshot",
@@ -2658,7 +2674,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             }
             
 
-            // Show local notification immediately as system message
+            // Show local notification immediately as system message (only in chat)
             let localNotification = BitchatMessage(
                 sender: "system",
                 content: "you took a screenshot",

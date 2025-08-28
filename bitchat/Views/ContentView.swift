@@ -165,6 +165,8 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showAppInfo) {
             AppInfoView()
+                .onAppear { viewModel.isAppInfoPresented = true }
+                .onDisappear { viewModel.isAppInfoPresented = false }
         }
         .sheet(isPresented: Binding(
             get: { viewModel.showingFingerprintFor != nil },
@@ -1182,6 +1184,13 @@ struct ContentView: View {
         .padding(.horizontal, 12)
         .sheet(isPresented: $showLocationChannelsSheet) {
             LocationChannelsSheet(isPresented: $showLocationChannelsSheet)
+                .onAppear { viewModel.isLocationChannelsSheetPresented = true }
+                .onDisappear { viewModel.isLocationChannelsSheetPresented = false }
+        }
+        .alert("heads up", isPresented: $viewModel.showScreenshotPrivacyWarning) {
+            Button("ok", role: .cancel) {}
+        } message: {
+            Text("screenshots of location channels will reveal your location. think before sharing publicly.")
         }
         .background(backgroundColor.opacity(0.95))
     }
