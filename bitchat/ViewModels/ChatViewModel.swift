@@ -1834,6 +1834,30 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 }()
                 Task { @MainActor in
                     self.lastGeoNotificationAt[gh] = now
+                    // Pre-populate the target geohash timeline so the triggering message appears when user opens it
+                    var arr = self.geoTimelines[gh] ?? []
+                    let senderSuffix = String(event.pubkey.suffix(4))
+                    let nick = self.geoNicknames[event.pubkey.lowercased()]
+                    let senderName = (nick?.isEmpty == false ? nick! : "anon") + "#" + senderSuffix
+                    let ts = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+                    let mentions = self.parseMentions(from: content)
+                    let msg = BitchatMessage(
+                        id: event.id,
+                        sender: senderName,
+                        content: content,
+                        timestamp: ts,
+                        isRelay: false,
+                        originalSender: nil,
+                        isPrivate: false,
+                        recipientNickname: nil,
+                        senderPeerID: "nostr:\(event.pubkey.prefix(TransportConfig.nostrShortKeyDisplayLength))",
+                        mentions: mentions.isEmpty ? nil : mentions
+                    )
+                    if !arr.contains(where: { $0.id == msg.id }) {
+                        arr.append(msg)
+                        if arr.count > self.geoTimelineCap { arr = Array(arr.suffix(self.geoTimelineCap)) }
+                        self.geoTimelines[gh] = arr
+                    }
                     NotificationService.shared.sendGeohashActivityNotification(geohash: gh, bodyPreview: preview)
                 }
             }
@@ -5708,9 +5732,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
 
         // Removed background nudge notification for generic "new chats!"
 
-        // Append via batching buffer (skip empty content)
+        // Append via batching buffer (skip empty content) with simple dedup by ID
         if !finalMessage.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            enqueuePublic(finalMessage)
+            if !messages.contains(where: { $0.id == finalMessage.id }) {
+                enqueuePublic(finalMessage)
+            }
         }
     }
 
