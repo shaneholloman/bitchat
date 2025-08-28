@@ -659,6 +659,26 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 if state == .authorized { LocationChannelManager.shared.refreshChannels() }
             }
             .store(in: &cancellables)
+
+        // Track teleport flag changes to keep our own teleported marker in sync with regional status
+        LocationChannelManager.shared.$teleported
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isTeleported in
+                guard let self = self else { return }
+                Task { @MainActor in
+                    guard case .location(let ch) = self.activeChannel,
+                          let id = try? NostrIdentityBridge.deriveIdentity(forGeohash: ch.geohash) else { return }
+                    let key = id.publicKeyHex.lowercased()
+                    let hasRegional = !LocationChannelManager.shared.availableChannels.isEmpty
+                    let inRegional = LocationChannelManager.shared.availableChannels.contains { $0.geohash == ch.geohash }
+                    if isTeleported && hasRegional && !inRegional {
+                        self.teleportedGeo = self.teleportedGeo.union([key])
+                    } else {
+                        self.teleportedGeo.remove(key)
+                    }
+                }
+            }
+            .store(in: &cancellables)
         
         // Request notification permission
         NotificationService.shared.requestAuthorization()
@@ -797,10 +817,19 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             })
             if hasTeleportTag {
                 let key = event.pubkey.lowercased()
-                Task { @MainActor in self.teleportedGeo = self.teleportedGeo.union([key]) }
+                // Do not mark our own key from historical events; rely on manager.teleported for self
+                let isSelf: Bool = {
+                    if let gh = self.currentGeohash, let my = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh) {
+                        return my.publicKeyHex.lowercased() == key
+                    }
+                    return false
+                }()
+                if !isSelf {
+                    Task { @MainActor in self.teleportedGeo = self.teleportedGeo.union([key]) }
+                }
             }
             let senderName = self.displayNameForNostrPubkey(event.pubkey)
-            let content = event.content
+            let content = event.content.trimmingCharacters(in: .whitespacesAndNewlines)
             let timestamp = Date(timeIntervalSince1970: TimeInterval(event.created_at))
             let mentions = self.parseMentions(from: content)
             let msg = BitchatMessage(
@@ -1242,7 +1271,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     ///         Routes to private chat if one is selected, otherwise broadcasts
     @MainActor
     func sendMessage(_ content: String) {
-        guard !content.isEmpty else { return }
+        // Ignore messages that are empty or whitespace-only to prevent blank lines
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         
         // Check for commands
         if content.hasPrefix("/") {
@@ -1262,7 +1293,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             } else {
             }
         } else {
-            // Parse mentions from the content
+            // Parse mentions from the content (use original content for user intent)
             let mentions = parseMentions(from: content)
             
             // Add message to local display
@@ -1277,7 +1308,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
 
             let message = BitchatMessage(
                 sender: displaySender,
-                content: content,
+                content: trimmed,
                 timestamp: Date(),
                 isRelay: false,
                 originalSender: nil,
@@ -1322,7 +1353,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                     do {
                         let identity = try NostrIdentityBridge.deriveIdentity(forGeohash: ch.geohash)
                         let event = try NostrProtocol.createEphemeralGeohashEvent(
-                            content: content,
+                            content: trimmed,
                             geohash: ch.geohash,
                             senderIdentity: identity,
                             nickname: self.nickname,
@@ -1342,7 +1373,10 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                         SecureLogger.log("GeoTeleport: sent geo message pub=\(identity.publicKeyHex.prefix(8))… teleported=\(LocationChannelManager.shared.teleported)",
                                         category: SecureLogger.session, level: .debug)
                         // If we tagged this as teleported, also mark our pubkey in teleportedGeo for UI
-                        if LocationChannelManager.shared.teleported {
+                        // Only when not in our regional set (and regional list is known)
+                        let hasRegional = !LocationChannelManager.shared.availableChannels.isEmpty
+                        let inRegional = LocationChannelManager.shared.availableChannels.contains { $0.geohash == ch.geohash }
+                        if LocationChannelManager.shared.teleported && hasRegional && !inRegional {
                             let key = identity.publicKeyHex.lowercased()
                             self.teleportedGeo = self.teleportedGeo.union([key])
                             SecureLogger.log("GeoTeleport: mark self teleported key=\(key.prefix(8))… total=\(self.teleportedGeo.count)",
@@ -1379,9 +1413,13 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         case .location(let ch):
             // Sanitize existing timeline (filter any prior empty-content entries)
             var arr = geoTimelines[ch.geohash] ?? []
-            let before = arr.count
             arr.removeAll { $0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            if arr.count != before { geoTimelines[ch.geohash] = arr }
+            // Ensure chronological order when returning to a geohash
+            if arr.count > 1 {
+                arr.sort { $0.timestamp < $1.timestamp }
+            }
+            // Persist the cleaned/sorted timeline for this geohash
+            geoTimelines[ch.geohash] = arr
             messages = arr
         }
         // Unsubscribe previous
@@ -1400,14 +1438,18 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         
         guard case .location(let ch) = channel else { return }
         currentGeohash = ch.geohash
-        // Ensure self appears immediately in the people list; mark teleported state if applicable
+        // Ensure self appears immediately in the people list; mark teleported state only when truly teleported
         if let id = try? NostrIdentityBridge.deriveIdentity(forGeohash: ch.geohash) {
             self.recordGeoParticipant(pubkeyHex: id.publicKeyHex)
-            if LocationChannelManager.shared.teleported {
-                let key = id.publicKeyHex.lowercased()
+            let hasRegional = !LocationChannelManager.shared.availableChannels.isEmpty
+            let inRegional = LocationChannelManager.shared.availableChannels.contains { $0.geohash == ch.geohash }
+            let key = id.publicKeyHex.lowercased()
+            if LocationChannelManager.shared.teleported && hasRegional && !inRegional {
                 teleportedGeo = teleportedGeo.union([key])
                 SecureLogger.log("GeoTeleport: channel switch mark self teleported key=\(key.prefix(8))… total=\(teleportedGeo.count)",
                                 category: SecureLogger.session, level: .info)
+            } else {
+                teleportedGeo.remove(key)
             }
         }
         let subID = "geo-\(ch.geohash)"
@@ -1436,10 +1478,19 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             })
             if hasTeleportTag {
                 let key = event.pubkey.lowercased()
-                Task { @MainActor in
-                    self.teleportedGeo = self.teleportedGeo.union([key])
-                    SecureLogger.log("GeoTeleport: mark peer teleported key=\(key.prefix(8))… total=\(self.teleportedGeo.count)",
-                                    category: SecureLogger.session, level: .info)
+                // Avoid marking our own key from historical events; rely on manager.teleported for self
+                let isSelf: Bool = {
+                    if let gh = self.currentGeohash, let my = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh) {
+                        return my.publicKeyHex.lowercased() == key
+                    }
+                    return false
+                }()
+                if !isSelf {
+                    Task { @MainActor in
+                        self.teleportedGeo = self.teleportedGeo.union([key])
+                        SecureLogger.log("GeoTeleport: mark peer teleported key=\(key.prefix(8))… total=\(self.teleportedGeo.count)",
+                                        category: SecureLogger.session, level: .info)
+                    }
                 }
             }
             // Skip only very recent self-echo from relay; include older self events for hydration
@@ -1791,7 +1842,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: subRelays) { [weak self] event in
                 guard let self = self else { return }
                 guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue else { return }
-                // Compute existing participant count (5-minute window) BEFORE updating
+                // Compute current participant count (5-minute window) BEFORE updating with this event
                 let cutoff = Date().addingTimeInterval(-TransportConfig.uiRecentCutoffFiveMinutesSeconds)
                 let existingCount: Int = {
                     let map = self.geoParticipants[gh] ?? [:]
@@ -1799,7 +1850,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 }()
                 // Update participants for this specific geohash
                 self.recordGeoParticipant(pubkeyHex: event.pubkey, geohash: gh)
-                // Notify only on rising-edge: previously zero people, now someone chats
+                // Notify only on rising-edge: previously zero people, now someone sends a chat
                 let content = event.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !content.isEmpty else { return }
                 // Respect geohash blocks
@@ -4347,11 +4398,12 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
 
     func didReceivePublicMessage(from peerID: String, nickname: String, content: String, timestamp: Date) {
         Task { @MainActor in
-            let publicMentions = parseMentions(from: content)
+            let normalized = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let publicMentions = parseMentions(from: normalized)
             let msg = BitchatMessage(
                 id: UUID().uuidString,
                 sender: nickname,
-                content: content,
+                content: normalized,
                 timestamp: timestamp,
                 isRelay: false,
                 originalSender: nil,
