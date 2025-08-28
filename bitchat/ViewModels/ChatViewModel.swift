@@ -1412,6 +1412,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         switch channel {
         case .mesh:
             messages = meshTimeline
+            // Debug: log if any empty messages are present
+            let emptyMesh = messages.filter { $0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+            if emptyMesh > 0 {
+                SecureLogger.log("RenderGuard: mesh timeline contains \(emptyMesh) empty messages", category: SecureLogger.session, level: .debug)
+            }
             stopGeoParticipantsTimer()
             geohashPeople = []
             teleportedGeo.removeAll()
@@ -1419,13 +1424,26 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             // Sanitize existing timeline (filter any prior empty-content entries)
             var arr = geoTimelines[ch.geohash] ?? []
             arr.removeAll { $0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            // Ensure chronological order when returning to a geohash
+            // Deduplicate by ID while preserving order (from oldest to newest)
             if arr.count > 1 {
-                arr.sort { $0.timestamp < $1.timestamp }
+                var seen = Set<String>()
+                var dedup: [BitchatMessage] = []
+                for m in arr.sorted(by: { $0.timestamp < $1.timestamp }) {
+                    if !seen.contains(m.id) {
+                        dedup.append(m)
+                        seen.insert(m.id)
+                    }
+                }
+                arr = dedup
             }
             // Persist the cleaned/sorted timeline for this geohash
             geoTimelines[ch.geohash] = arr
             messages = arr
+            // Debug: log if any empty messages are present post-sanitize
+            let emptyGeo = messages.filter { $0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+            if emptyGeo > 0 {
+                SecureLogger.log("RenderGuard: geohash \(ch.geohash) timeline has \(emptyGeo) empty messages after sanitize", category: SecureLogger.session, level: .debug)
+            }
         }
         // Unsubscribe previous
         if let sub = geoSubscriptionID {
@@ -5797,9 +5815,12 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         if isGeo && finalMessage.sender != "system" {
             if let gh = currentGeohash {
                 var arr = geoTimelines[gh] ?? []
-                arr.append(finalMessage)
-                if arr.count > geoTimelineCap { arr = Array(arr.suffix(geoTimelineCap)) }
-                geoTimelines[gh] = arr
+                // Dedup by message ID before appending to per-geohash timeline
+                if !arr.contains(where: { $0.id == finalMessage.id }) {
+                    arr.append(finalMessage)
+                    if arr.count > geoTimelineCap { arr = Array(arr.suffix(geoTimelineCap)) }
+                    geoTimelines[gh] = arr
+                }
             }
         }
 

@@ -281,8 +281,10 @@ struct ContentView: View {
                         }
                     }()
                     let items = windowedMessages.map { (uiID: "\(contextKey)|\($0.id)", message: $0) }
-                    
-                    ForEach(items, id: \.uiID) { item in
+                    // Filter out empty/whitespace-only messages to avoid blank rows
+                    let filteredItems = items.filter { !$0.message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+                    ForEach(filteredItems, id: \.uiID) { item in
                         let message = item.message
                         VStack(alignment: .leading, spacing: 0) {
                             // Check if current user is mentioned
