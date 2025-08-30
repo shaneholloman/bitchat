@@ -7,11 +7,11 @@ enum PowPolicy {
     /// Clamped to a sane range to keep UX responsive on phones.
     static func requiredBits(forGeohash geohash: String) -> Int {
         let precision = geohash.count
-        // Start at 16 and go down with higher precision (smaller areas)
+        // Start at 13 and go down with higher precision (smaller areas)
         switch precision {
-        case ...5: return 10
-        case 6:    return 9
-        default:   return 8
+        case ...5: return 13
+        case 6:    return 12
+        default:   return 11
         }
     }
 }

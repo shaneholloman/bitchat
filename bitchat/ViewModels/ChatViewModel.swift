@@ -2786,27 +2786,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 meshService.sendMessage(screenshotMessage, mentions: [])
             case .location(let ch):
                 Task { @MainActor in
-                    do {
-                        let identity = try NostrIdentityBridge.deriveIdentity(forGeohash: ch.geohash)
-                        let event = try NostrProtocol.createEphemeralGeohashEvent(
-                            content: screenshotMessage,
-                            geohash: ch.geohash,
-                            senderIdentity: identity,
-                            nickname: self.nickname,
-                            teleported: LocationChannelManager.shared.teleported
-                        )
-                        let targetRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: ch.geohash, count: 5)
-                        if targetRelays.isEmpty {
-                            SecureLogger.log("Geo: no geohash relays available for \(ch.geohash); not sending", category: SecureLogger.session, level: .warning)
-                        } else {
-                            NostrRelayManager.shared.sendEvent(event, to: targetRelays)
-                        }
-                        // Track ourselves as active participant
-                        self.recordGeoParticipant(pubkeyHex: identity.publicKeyHex)
-                    } catch {
-                        SecureLogger.log("❌ Failed to send geohash screenshot message: \(error)", category: SecureLogger.session, level: .error)
-                        self.addSystemMessage("failed to send to location channel")
-                    }
+                    await mineAndSendGeohashEvent(content: screenshotMessage, geohash: ch.geohash, nickname: self.nickname, teleported: LocationChannelManager.shared.teleported, createdAt: Date())
                 }
             }
             
@@ -5058,29 +5038,55 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     func sendPublicRaw(_ content: String) {
         if case .location(let ch) = activeChannel {
             Task { @MainActor in
-                do {
-                    let identity = try NostrIdentityBridge.deriveIdentity(forGeohash: ch.geohash)
-                    let event = try NostrProtocol.createEphemeralGeohashEvent(
-                        content: content,
-                        geohash: ch.geohash,
-                        senderIdentity: identity,
-                        nickname: self.nickname,
-                        teleported: LocationChannelManager.shared.teleported
-                    )
-                    let targetRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: ch.geohash, count: 5)
-                    if targetRelays.isEmpty {
-                        NostrRelayManager.shared.sendEvent(event)
-                    } else {
-                        NostrRelayManager.shared.sendEvent(event, to: targetRelays)
-                    }
-                } catch {
-                    SecureLogger.log("❌ Failed to send geohash raw message: \(error)", category: SecureLogger.session, level: .error)
-                }
+                await mineAndSendGeohashEvent(content: content, geohash: ch.geohash, nickname: self.nickname, teleported: LocationChannelManager.shared.teleported, createdAt: Date())
             }
             return
         }
         // Default: send over mesh
         meshService.sendMessage(content, mentions: [])
+    }
+
+    // MARK: - Geohash PoW helper for system/raw messages
+    @MainActor
+    private func mineAndSendGeohashEvent(content: String, geohash: String, nickname: String, teleported: Bool, createdAt: Date) async {
+        do {
+            let identity = try NostrIdentityBridge.deriveIdentity(forGeohash: geohash)
+            let createdAtSecs = Int(createdAt.timeIntervalSince1970)
+            var baseTags = [["g", geohash]]
+            if !nickname.isEmpty { baseTags.append(["n", nickname]) }
+            if teleported { baseTags.append(["t", "teleport"]) }
+            let bits = PowPolicy.requiredBits(forGeohash: geohash)
+            let (nonce, _) = await withCheckedContinuation { (cont: CheckedContinuation<(UInt64, String), Never>) in
+                DispatchQueue.global(qos: .utility).async {
+                    let res = NostrPoW.mine(pubkey: identity.publicKeyHex,
+                                            createdAt: createdAtSecs,
+                                            kind: NostrProtocol.EventKind.ephemeralEvent.rawValue,
+                                            baseTags: baseTags,
+                                            content: content,
+                                            targetBits: bits)
+                    cont.resume(returning: (res.nonce, res.idHex))
+                }
+            }
+            var tags = baseTags
+            tags.append(["nonce", String(nonce), String(bits)])
+            var event = NostrEvent(
+                pubkey: identity.publicKeyHex,
+                createdAt: createdAt,
+                kind: .ephemeralEvent,
+                tags: tags,
+                content: content
+            )
+            let key = try identity.schnorrSigningKey()
+            event = try event.sign(with: key)
+            let relays = GeoRelayDirectory.shared.closestRelays(toGeohash: geohash, count: TransportConfig.nostrGeoRelayCount)
+            if relays.isEmpty {
+                NostrRelayManager.shared.sendEvent(event)
+            } else {
+                NostrRelayManager.shared.sendEvent(event, to: relays)
+            }
+        } catch {
+            SecureLogger.log("❌ GeoPoW: failed to send event: \(error)", category: SecureLogger.session, level: .error)
+        }
     }
     
     // MARK: - Simplified Nostr Integration (Inlined from MessageRouter)
