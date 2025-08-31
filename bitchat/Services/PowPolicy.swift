@@ -9,9 +9,9 @@ enum PowPolicy {
         let precision = geohash.count
         // Start at 13 and go down with higher precision (smaller areas)
         switch precision {
-        case ...5: return 13
-        case 6:    return 12
-        default:   return 11
+        case ...5: return 16
+        case 6:    return 15
+        default:   return 14
         }
     }
 }
