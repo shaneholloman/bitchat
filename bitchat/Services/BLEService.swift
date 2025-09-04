@@ -400,7 +400,7 @@ final class BLEService: NSObject {
         maintenanceTimer = timer
         
         // Publish initial empty state
-        publishFullPeerData()
+        requestPeerDataPublish()
     }
     
     func setNickname(_ nickname: String) {
@@ -1595,7 +1595,7 @@ final class BLEService: NSObject {
                 self.delegate?.didConnectToPeer(peerID)
             }
             
-            self.publishFullPeerData()
+            self.requestPeerDataPublish()
             self.delegate?.didUpdatePeerList(currentPeerIDs)
         }
         
@@ -1989,6 +1989,28 @@ final class BLEService: NSObject {
             self?.peerEventsDelegate?.didUpdatePeerSnapshots(transportPeers)
         }
     }
+
+    // Debounced publish to coalesce rapid changes
+    private var lastPeerPublishAt: Date = .distantPast
+    private var peerPublishPending: Bool = false
+    private let peerPublishMinInterval: TimeInterval = 0.1
+    private func requestPeerDataPublish() {
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastPeerPublishAt)
+        if elapsed >= peerPublishMinInterval {
+            lastPeerPublishAt = now
+            publishFullPeerData()
+        } else if !peerPublishPending {
+            peerPublishPending = true
+            let delay = peerPublishMinInterval - elapsed
+            messageQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self else { return }
+                self.lastPeerPublishAt = Date()
+                self.peerPublishPending = false
+                self.publishFullPeerData()
+            }
+        }
+    }
     
     // MARK: - Consolidated Maintenance
     
@@ -2102,7 +2124,7 @@ final class BLEService: NSObject {
                     self.delegate?.didDisconnectFromPeer(peerID)
                 }
                 // Publish snapshots so UnifiedPeerService updates connection/reachability icons
-                self.publishFullPeerData()
+                self.requestPeerDataPublish()
                 self.delegate?.didUpdatePeerList(currentPeerIDs)
             }
         }
@@ -2484,7 +2506,7 @@ func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeriph
             if let peerID = peerID {
                 self.notifyPeerDisconnectedDebounced(peerID)
             }
-            self.publishFullPeerData()
+            self.requestPeerDataPublish()
             self.delegate?.didUpdatePeerList(currentPeerIDs)
         }
     }
@@ -2885,7 +2907,7 @@ extension BLEService: CBPeripheralManagerDelegate {
                 
                 self.notifyPeerDisconnectedDebounced(peerID)
                 // Publish snapshots so UnifiedPeerService can refresh icons promptly
-                self.publishFullPeerData()
+                self.requestPeerDataPublish()
                 self.delegate?.didUpdatePeerList(currentPeerIDs)
             }
         }

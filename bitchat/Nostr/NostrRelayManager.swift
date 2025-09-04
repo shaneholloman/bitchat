@@ -290,14 +290,21 @@ class NostrRelayManager: ObservableObject {
             case .success(let message):
                 switch message {
                 case .string(let text):
-                    Task { @MainActor in
-                        self.handleMessage(text, from: relayUrl)
+                    // Parse off-main to reduce UI jank, then hop back for state updates
+                    Task.detached { [weak self] in
+                        guard let parsed = Self.parseInboundMessage(text) else { return }
+                        await MainActor.run {
+                            self?.handleParsedMessage(parsed, from: relayUrl)
+                        }
                     }
                 case .data(let data):
                     if let text = String(data: data, encoding: .utf8) {
-                        Task { @MainActor in
-                        self.handleMessage(text, from: relayUrl)
-                    }
+                        Task.detached { [weak self] in
+                            guard let parsed = Self.parseInboundMessage(text) else { return }
+                            await MainActor.run {
+                                self?.handleParsedMessage(parsed, from: relayUrl)
+                            }
+                        }
                     }
                 @unknown default:
                     break
@@ -316,79 +323,82 @@ class NostrRelayManager: ObservableObject {
         }
     }
     
-    private func handleMessage(_ message: String, from relayUrl: String) {
-        guard let data = message.data(using: .utf8) else { return }
-        
+    // Parsed inbound message type (off-main)
+    private enum ParsedInbound {
+        case event(subId: String, event: NostrEvent)
+        case ok(eventId: String, success: Bool, reason: String)
+        case eose(subscriptionId: String)
+        case notice(String)
+    }
+
+    // Off-main JSON parse to avoid UI jank
+    private static func parseInboundMessage(_ message: String) -> ParsedInbound? {
+        guard let data = message.data(using: .utf8) else { return nil }
         do {
-            // Try to decode as an array first
             if let array = try JSONSerialization.jsonObject(with: data) as? [Any],
                array.count >= 2,
                let type = array[0] as? String {
-                
-                // Received message from relay
-                
                 switch type {
                 case "EVENT":
                     if array.count >= 3,
                        let subId = array[1] as? String,
                        let eventDict = array[2] as? [String: Any] {
-                        
                         let event = try NostrEvent(from: eventDict)
-                        
-                        // Only log non-gift-wrap events to reduce noise
-                        if event.kind != 1059 {
-                            SecureLogger.log("📥 Event kind=\(event.kind) id=\(event.id.prefix(16))… relay=\(relayUrl)",
-                                            category: SecureLogger.session, level: .debug)
-                        }
-                        
-                        DispatchQueue.main.async {
-                            // Update relay stats
-                            if let index = self.relays.firstIndex(where: { $0.url == relayUrl }) {
-                                self.relays[index].messagesReceived += 1
-                            }
-                            
-                            // Call handler
-                            if let handler = self.messageHandlers[subId] {
-                                handler(event)
-                            } else {
-                                SecureLogger.log("⚠️ No handler for subscription \(subId)", 
-                                                category: SecureLogger.session, level: .warning)
-                            }
-                        }
+                        return .event(subId: subId, event: event)
                     }
-                    
                 case "EOSE":
-                    if array.count >= 2 {
-                        // End of stored events
-                    }
-                    
+                    if let subId = array[1] as? String { return .eose(subscriptionId: subId) }
                 case "OK":
                     if array.count >= 3,
                        let eventId = array[1] as? String,
                        let success = array[2] as? Bool {
                         let reason = array.count >= 4 ? (array[3] as? String ?? "no reason given") : "no reason given"
-                        if success {
-                            _ = Self.pendingGiftWrapIDs.remove(eventId)
-                            SecureLogger.log("✅ Accepted id=\(eventId.prefix(16))… relay=\(relayUrl)",
-                                            category: SecureLogger.session, level: .debug)
-                        } else {
-                            let isGiftWrap = Self.pendingGiftWrapIDs.remove(eventId) != nil
-                            SecureLogger.log("📮 Rejected id=\(eventId.prefix(16))… reason=\(reason)", 
-                                            category: SecureLogger.session, level: isGiftWrap ? .warning : .error)
-                        }
+                        return .ok(eventId: eventId, success: success, reason: reason)
                     }
-                    
                 case "NOTICE":
-                    if array.count >= 2 {
-                        // Server notice received
-                    }
-                    
+                    if array.count >= 2, let msg = array[1] as? String { return .notice(msg) }
                 default:
-                    break // Unknown message type
+                    return nil
                 }
             }
         } catch {
-            SecureLogger.log("Failed to parse Nostr message: \(error)", category: SecureLogger.session, level: .error)
+            // Fall through to nil; main will ignore
+        }
+        return nil
+    }
+
+    // Handle parsed message on MainActor (state updates and handlers)
+    private func handleParsedMessage(_ parsed: ParsedInbound, from relayUrl: String) {
+        switch parsed {
+        case .event(let subId, let event):
+            if event.kind != 1059 {
+                SecureLogger.log("📥 Event kind=\(event.kind) id=\(event.id.prefix(16))… relay=\(relayUrl)",
+                                category: SecureLogger.session, level: .debug)
+            }
+            if let index = self.relays.firstIndex(where: { $0.url == relayUrl }) {
+                self.relays[index].messagesReceived += 1
+            }
+            if let handler = self.messageHandlers[subId] {
+                handler(event)
+            } else {
+                SecureLogger.log("⚠️ No handler for subscription \(subId)", 
+                                category: SecureLogger.session, level: .warning)
+            }
+        case .eose:
+            // No-op for now
+            break
+        case .ok(let eventId, let success, let reason):
+            if success {
+                _ = Self.pendingGiftWrapIDs.remove(eventId)
+                SecureLogger.log("✅ Accepted id=\(eventId.prefix(16))… relay=\(relayUrl)",
+                                category: SecureLogger.session, level: .debug)
+            } else {
+                let isGiftWrap = Self.pendingGiftWrapIDs.remove(eventId) != nil
+                SecureLogger.log("📮 Rejected id=\(eventId.prefix(16))… reason=\(reason)",
+                                category: SecureLogger.session, level: isGiftWrap ? .warning : .error)
+            }
+        case .notice:
+            break
         }
     }
     
