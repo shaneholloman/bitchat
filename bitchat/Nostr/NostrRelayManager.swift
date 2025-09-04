@@ -51,6 +51,8 @@ class NostrRelayManager: ObservableObject {
     }
     private var messageQueue: [PendingSend] = []
     private let messageQueueLock = NSLock()
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
     
     // Exponential backoff configuration
     private let initialBackoffInterval: TimeInterval = TransportConfig.nostrRelayInitialBackoffSeconds
@@ -64,6 +66,8 @@ class NostrRelayManager: ObservableObject {
     init() {
         // Initialize with default relays
         self.relays = Self.defaultRelays.map { Relay(url: $0) }
+        // Deterministic JSON shape for outbound requests
+        self.encoder.outputFormatting = .sortedKeys
     }
     
     /// Connect to all configured relays
@@ -170,8 +174,6 @@ class NostrRelayManager: ObservableObject {
         let req = NostrRequest.subscribe(id: id, filters: [filter])
         
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = .sortedKeys // For consistent output
             let message = try encoder.encode(req)
             guard let messageString = String(data: message, encoding: .utf8) else { 
                 SecureLogger.log("❌ Failed to encode subscription request", category: SecureLogger.session, level: .error)
@@ -221,7 +223,7 @@ class NostrRelayManager: ObservableObject {
         messageHandlers.removeValue(forKey: id)
         
         let req = NostrRequest.close(id: id)
-        let message = try? JSONEncoder().encode(req)
+        let message = try? encoder.encode(req)
         
         guard let messageData = message,
               let messageString = String(data: messageData, encoding: .utf8) else { return }
@@ -394,8 +396,6 @@ class NostrRelayManager: ObservableObject {
         let req = NostrRequest.event(event)
         
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = .sortedKeys
             let data = try encoder.encode(req)
             let message = String(data: data, encoding: .utf8) ?? ""
             

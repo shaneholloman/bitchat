@@ -13,7 +13,7 @@ struct CompressionUtil {
     // Compression threshold - don't compress if data is smaller than this
     static let compressionThreshold = TransportConfig.compressionThresholdBytes // bytes
     
-    // Compress data using zlib algorithm (most compatible)
+    // Compress data using LZFSE for speed on Apple platforms
     static func compress(_ data: Data) -> Data? {
         // Skip compression for small data
         guard data.count >= compressionThreshold else { return nil }
@@ -27,7 +27,7 @@ struct CompressionUtil {
             return compression_encode_buffer(
                 destinationBuffer, data.count,
                 sourcePtr, data.count,
-                nil, COMPRESSION_ZLIB
+                nil, COMPRESSION_LZFSE
             )
         }
         
@@ -36,7 +36,7 @@ struct CompressionUtil {
         return Data(bytes: destinationBuffer, count: compressedSize)
     }
     
-    // Decompress zlib compressed data
+    // Decompress LZFSE compressed data
     static func decompress(_ compressedData: Data, originalSize: Int) -> Data? {
         let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: originalSize)
         defer { destinationBuffer.deallocate() }
@@ -46,7 +46,7 @@ struct CompressionUtil {
             return compression_decode_buffer(
                 destinationBuffer, originalSize,
                 sourcePtr, compressedData.count,
-                nil, COMPRESSION_ZLIB
+                nil, COMPRESSION_LZFSE
             )
         }
         
