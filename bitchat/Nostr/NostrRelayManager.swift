@@ -291,18 +291,18 @@ class NostrRelayManager: ObservableObject {
                 switch message {
                 case .string(let text):
                     // Parse off-main to reduce UI jank, then hop back for state updates
-                    Task.detached { [weak self] in
+                    Task.detached(priority: .utility) {
                         guard let parsed = Self.parseInboundMessage(text) else { return }
                         await MainActor.run {
-                            self?.handleParsedMessage(parsed, from: relayUrl)
+                            NostrRelayManager.shared.handleParsedMessage(parsed, from: relayUrl)
                         }
                     }
                 case .data(let data):
                     if let text = String(data: data, encoding: .utf8) {
-                        Task.detached { [weak self] in
+                        Task.detached(priority: .utility) {
                             guard let parsed = Self.parseInboundMessage(text) else { return }
                             await MainActor.run {
-                                self?.handleParsedMessage(parsed, from: relayUrl)
+                                NostrRelayManager.shared.handleParsedMessage(parsed, from: relayUrl)
                             }
                         }
                     }
