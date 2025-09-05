@@ -292,7 +292,7 @@ class NostrRelayManager: ObservableObject {
                 case .string(let text):
                     // Parse off-main to reduce UI jank, then hop back for state updates
                     Task.detached(priority: .utility) {
-                        guard let parsed = Self.parseInboundMessage(text) else { return }
+                        guard let parsed = parseInboundMessage(text) else { return }
                         await MainActor.run {
                             NostrRelayManager.shared.handleParsedMessage(parsed, from: relayUrl)
                         }
@@ -300,7 +300,7 @@ class NostrRelayManager: ObservableObject {
                 case .data(let data):
                     if let text = String(data: data, encoding: .utf8) {
                         Task.detached(priority: .utility) {
-                            guard let parsed = Self.parseInboundMessage(text) else { return }
+                            guard let parsed = parseInboundMessage(text) else { return }
                             await MainActor.run {
                                 NostrRelayManager.shared.handleParsedMessage(parsed, from: relayUrl)
                             }
@@ -324,48 +324,8 @@ class NostrRelayManager: ObservableObject {
     }
     
     // Parsed inbound message type (off-main)
-    private enum ParsedInbound {
-        case event(subId: String, event: NostrEvent)
-        case ok(eventId: String, success: Bool, reason: String)
-        case eose(subscriptionId: String)
-        case notice(String)
-    }
-
-    // Off-main JSON parse to avoid UI jank
-    private static func parseInboundMessage(_ message: String) -> ParsedInbound? {
-        guard let data = message.data(using: .utf8) else { return nil }
-        do {
-            if let array = try JSONSerialization.jsonObject(with: data) as? [Any],
-               array.count >= 2,
-               let type = array[0] as? String {
-                switch type {
-                case "EVENT":
-                    if array.count >= 3,
-                       let subId = array[1] as? String,
-                       let eventDict = array[2] as? [String: Any] {
-                        let event = try NostrEvent(from: eventDict)
-                        return .event(subId: subId, event: event)
-                    }
-                case "EOSE":
-                    if let subId = array[1] as? String { return .eose(subscriptionId: subId) }
-                case "OK":
-                    if array.count >= 3,
-                       let eventId = array[1] as? String,
-                       let success = array[2] as? Bool {
-                        let reason = array.count >= 4 ? (array[3] as? String ?? "no reason given") : "no reason given"
-                        return .ok(eventId: eventId, success: success, reason: reason)
-                    }
-                case "NOTICE":
-                    if array.count >= 2, let msg = array[1] as? String { return .notice(msg) }
-                default:
-                    return nil
-                }
-            }
-        } catch {
-            // Fall through to nil; main will ignore
-        }
-        return nil
-    }
+    // Note: declared at file scope below to avoid MainActor isolation inside this class
+    // and keep parsing off the main actor.
 
     // Handle parsed message on MainActor (state updates and handlers)
     private func handleParsedMessage(_ parsed: ParsedInbound, from relayUrl: String) {
@@ -552,6 +512,51 @@ class NostrRelayManager: ObservableObject {
         // Reconnect
         connect()
     }
+}
+
+// MARK: - Off-main inbound parsing helpers (file scope, non-isolated)
+
+private enum ParsedInbound {
+    case event(subId: String, event: NostrEvent)
+    case ok(eventId: String, success: Bool, reason: String)
+    case eose(subscriptionId: String)
+    case notice(String)
+}
+
+// Off-main JSON parse to avoid UI jank; pure function, not actor-isolated
+private func parseInboundMessage(_ message: String) -> ParsedInbound? {
+    guard let data = message.data(using: .utf8) else { return nil }
+    do {
+        if let array = try JSONSerialization.jsonObject(with: data) as? [Any],
+           array.count >= 2,
+           let type = array[0] as? String {
+            switch type {
+            case "EVENT":
+                if array.count >= 3,
+                   let subId = array[1] as? String,
+                   let eventDict = array[2] as? [String: Any] {
+                    let event = try NostrEvent(from: eventDict)
+                    return .event(subId: subId, event: event)
+                }
+            case "EOSE":
+                if let subId = array[1] as? String { return .eose(subscriptionId: subId) }
+            case "OK":
+                if array.count >= 3,
+                   let eventId = array[1] as? String,
+                   let success = array[2] as? Bool {
+                    let reason = array.count >= 4 ? (array[3] as? String ?? "no reason given") : "no reason given"
+                    return .ok(eventId: eventId, success: success, reason: reason)
+                }
+            case "NOTICE":
+                if array.count >= 2, let msg = array[1] as? String { return .notice(msg) }
+            default:
+                return nil
+            }
+        }
+    } catch {
+        // Ignore
+    }
+    return nil
 }
 
 // MARK: - Nostr Protocol Types
