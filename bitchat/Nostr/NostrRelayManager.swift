@@ -39,7 +39,8 @@ class NostrRelayManager: ObservableObject {
     @Published private(set) var isConnected = false
     
     private var connections: [String: URLSessionWebSocketTask] = [:]
-    private var subscriptions: [String: Set<String>] = [:] // relay URL -> subscription IDs
+    private var subscriptions: [String: Set<String>] = [:] // relay URL -> active subscription IDs
+    private var pendingSubscriptions: [String: [String: String]] = [:] // relay URL -> (subscription id -> encoded REQ JSON)
     private var messageHandlers: [String: (NostrEvent) -> Void] = [:]
     private var cancellables = Set<AnyCancellable>()
     
@@ -72,9 +73,19 @@ class NostrRelayManager: ObservableObject {
     
     /// Connect to all configured relays
     func connect() {
-        SecureLogger.log("🌐 Connecting to \(relays.count) Nostr relays", category: SecureLogger.session, level: .debug)
-        for relay in relays {
-            connectToRelay(relay.url)
+        SecureLogger.log("🌐 Connecting to \(relays.count) Nostr relays (via Tor)", category: SecureLogger.session, level: .debug)
+        // Ensure Tor is started early and wait for readiness off-main; then hop back to connect.
+        Task.detached {
+            let ready = await TorManager.shared.awaitReady()
+            await MainActor.run {
+                if !ready {
+                    SecureLogger.log("❌ Tor not ready; aborting relay connections (fail-closed)", category: SecureLogger.session, level: .error)
+                    return
+                }
+                for relay in self.relays {
+                    self.connectToRelay(relay.url)
+                }
+            }
         }
     }
     
@@ -191,6 +202,10 @@ class NostrRelayManager: ObservableObject {
             }
 
             for (relayUrl, connection) in targets {
+                // Skip if already subscribed for this relay
+                if self.subscriptions[relayUrl]?.contains(id) == true {
+                    continue
+                }
                 connection.send(.string(messageString)) { error in
                     if let error = error {
                         SecureLogger.log("❌ Failed to send subscription to \(relayUrl): \(error)", 
@@ -208,6 +223,17 @@ class NostrRelayManager: ObservableObject {
                 }
             }
             
+            // If some target relays are not connected yet, queue desired subscriptions to flush later
+            let notConnected = urls.filter { connections[$0] == nil }
+            if !notConnected.isEmpty {
+                for url in notConnected {
+                    var map = self.pendingSubscriptions[url] ?? [:]
+                    map[id] = messageString
+                    self.pendingSubscriptions[url] = map
+                }
+                SecureLogger.log("⚠️ Queued subscription '" + id + "' for \(notConnected.count) pending relay(s)",
+                                category: SecureLogger.session, level: .debug)
+            }
             if connections.isEmpty {
                 SecureLogger.log("⚠️ No relay connections available for subscription", 
                                 category: SecureLogger.session, level: .warning)
@@ -253,9 +279,22 @@ class NostrRelayManager: ObservableObject {
             return
         }
         
-        // Attempting to connect to Nostr relay
+        // Attempting to connect to Nostr relay via the proxied session
         
-        let session = URLSession(configuration: .default)
+        // If Tor is enforced but not ready, delay connection until it is.
+        if TorManager.shared.torEnforced && !TorManager.shared.isReady {
+            Task.detached { [weak self] in
+                guard let self = self else { return }
+                let ready = await TorManager.shared.awaitReady()
+                await MainActor.run {
+                    if ready { self.connectToRelay(urlString) }
+                    else { SecureLogger.log("❌ Tor not ready; skipping connection to \(urlString)", category: SecureLogger.session, level: .error) }
+                }
+            }
+            return
+        }
+        
+        let session = TorURLSession.shared.session
         let task = session.webSocketTask(with: url)
         
         connections[urlString] = task
@@ -271,6 +310,8 @@ class NostrRelayManager: ObservableObject {
                     SecureLogger.log("✅ Connected to Nostr relay: \(urlString)", 
                                    category: SecureLogger.session, level: .debug)
                     self?.updateRelayStatus(urlString, isConnected: true)
+                    // Flush any pending subscriptions for this relay
+                    self?.flushPendingSubscriptions(for: urlString)
                 } else {
                     SecureLogger.log("❌ Failed to connect to Nostr relay \(urlString): \(error?.localizedDescription ?? "Unknown error")", 
                                    category: SecureLogger.session, level: .error)
@@ -280,6 +321,28 @@ class NostrRelayManager: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Send any queued subscriptions for a relay that just connected.
+    private func flushPendingSubscriptions(for relayUrl: String) {
+        guard let map = pendingSubscriptions[relayUrl], !map.isEmpty else { return }
+        guard let connection = connections[relayUrl] else { return }
+        for (id, messageString) in map {
+            if self.subscriptions[relayUrl]?.contains(id) == true { continue }
+            connection.send(.string(messageString)) { error in
+                if let error = error {
+                    SecureLogger.log("❌ Failed to send pending subscription to \(relayUrl): \(error)",
+                                    category: SecureLogger.session, level: .error)
+                } else {
+                    Task { @MainActor in
+                        var subs = self.subscriptions[relayUrl] ?? Set<String>()
+                        subs.insert(id)
+                        self.subscriptions[relayUrl] = subs
+                    }
+                }
+            }
+        }
+        pendingSubscriptions[relayUrl] = nil
     }
     
     private func receiveMessage(from task: URLSessionWebSocketTask, relayUrl: String) {

@@ -358,6 +358,10 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private var geoDmSubscriptionID: String? = nil
     private var currentGeohash: String? = nil
     private var geoNicknames: [String: String] = [:] // pubkeyHex(lowercased) -> nickname
+    // Show Tor status once per app launch
+    private var torStatusAnnounced = false
+    private var torProgressCancellable: AnyCancellable?
+    private var lastTorProgressAnnounced = -1
     
     // MARK: - Caches
     
@@ -526,6 +530,35 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         // Start mesh service immediately
         meshService.startServices()
         
+        // Announce Tor status to the chat timeline as early as possible
+        if TorManager.shared.torEnforced && !torStatusAnnounced {
+            torStatusAnnounced = true
+            addPublicSystemMessage("Starting Tor…")
+            torProgressCancellable = TorManager.shared.$bootstrapProgress
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] p in
+                    guard let self = self else { return }
+                    if p == 0 { return }
+                    if p == 100 || p / 10 > self.lastTorProgressAnnounced / 10 {
+                        self.lastTorProgressAnnounced = p
+                        let summary = TorManager.shared.bootstrapSummary
+                        let msg = summary.isEmpty ? "Tor \(p)%" : "Tor \(p)% – \(summary)"
+                        self.addPublicSystemMessage(msg)
+                    }
+                }
+            Task.detached { [weak self] in
+                let ready = await TorManager.shared.awaitReady()
+                await MainActor.run {
+                    guard let strongSelf = self else { return }
+                    if ready { strongSelf.addPublicSystemMessage("Tor ready. Routing all connections via Tor.") }
+                    else { strongSelf.addPublicSystemMessage("Still waiting for Tor to start…") }
+                }
+            }
+        } else if !TorManager.shared.torEnforced && !torStatusAnnounced {
+            torStatusAnnounced = true
+            addPublicSystemMessage("Development build: Tor bypass enabled.")
+        }
+
         // Initialize Nostr services
         Task { @MainActor in
             nostrRelayManager = NostrRelayManager.shared
