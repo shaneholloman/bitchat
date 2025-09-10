@@ -43,6 +43,8 @@ struct BitchatApp: App {
                     #elseif os(macOS)
                     appDelegate.chatViewModel = chatViewModel
                     #endif
+                    // Spin up Tor early; all internet will gate on Tor 100%
+                    TorManager.shared.startIfNeeded()
                     // Check for shared content
                     checkForSharedContent()
                 }
@@ -54,10 +56,18 @@ struct BitchatApp: App {
                     switch newPhase {
                     case .background:
                         // Keep BLE mesh running in background; BLEService adapts scanning automatically
+                        // Optionally nudge Tor to dormant to save power
+                        TorManager.shared.goDormantOnBackground()
                         break
                     case .active:
                         // Restart services when becoming active
                         chatViewModel.meshService.startServices()
+                        // Ensure Tor is healthy; restart if suspended; wake ACTIVE
+                        TorManager.shared.ensureRunningOnForeground()
+                        // Rebuild proxied sessions to bind to live Tor
+                        TorURLSession.shared.rebuild()
+                        // Reconnect Nostr via fresh sessions; will gate until Tor 100%
+                        NostrRelayManager.shared.resetAllConnections()
                         checkForSharedContent()
                     case .inactive:
                         break

@@ -533,30 +533,20 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         // Announce Tor status to the chat timeline as early as possible
         if TorManager.shared.torEnforced && !torStatusAnnounced {
             torStatusAnnounced = true
-            addPublicSystemMessage("Starting Tor…")
-            torProgressCancellable = TorManager.shared.$bootstrapProgress
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] p in
-                    guard let self = self else { return }
-                    if p == 0 { return }
-                    if p == 100 || p / 10 > self.lastTorProgressAnnounced / 10 {
-                        self.lastTorProgressAnnounced = p
-                        let summary = TorManager.shared.bootstrapSummary
-                        let msg = summary.isEmpty ? "Tor \(p)%" : "Tor \(p)% – \(summary)"
-                        self.addPublicSystemMessage(msg)
-                    }
-                }
-            Task.detached { [weak self] in
+            addPublicSystemMessage("starting tor...")
+            // Suppress incremental Tor progress messages; only show initial start and readiness.
+            torProgressCancellable = nil
+            Task.detached {
                 let ready = await TorManager.shared.awaitReady()
-                await MainActor.run {
-                    guard let strongSelf = self else { return }
-                    if ready { strongSelf.addPublicSystemMessage("Tor ready. Routing all connections via Tor.") }
-                    else { strongSelf.addPublicSystemMessage("Still waiting for Tor to start…") }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if ready { self.addPublicSystemMessage("tor started. routing all chats via tor for privacy.") }
+                    else { self.addPublicSystemMessage("still waiting for tor to start...") }
                 }
             }
         } else if !TorManager.shared.torEnforced && !torStatusAnnounced {
             torStatusAnnounced = true
-            addPublicSystemMessage("Development build: Tor bypass enabled.")
+            addPublicSystemMessage("development build: tor bypass enabled.")
         }
 
         // Initialize Nostr services
@@ -4906,10 +4896,27 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         messages.append(systemMessage)
     }
 
-    /// Public helper to add a system message to the public chat timeline
+    /// Public helper to add a system message to the public chat timeline.
+    /// Also persists the message into the active channel's backing store so it survives timeline rebinds.
     @MainActor
     func addPublicSystemMessage(_ content: String) {
-        addSystemMessage(content)
+        let systemMessage = BitchatMessage(
+            sender: "system",
+            content: content,
+            timestamp: Date(),
+            isRelay: false
+        )
+        // Append to current visible messages
+        messages.append(systemMessage)
+        // Persist into the backing store for the active channel to survive rebinds
+        switch activeChannel {
+        case .mesh:
+            meshTimeline.append(systemMessage)
+        case .location(let ch):
+            var arr = geoTimelines[ch.geohash] ?? []
+            arr.append(systemMessage)
+            geoTimelines[ch.geohash] = arr
+        }
         objectWillChange.send()
     }
     // Send a public message without adding a local user echo.

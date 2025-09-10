@@ -10,14 +10,38 @@ final class TorURLSession {
     static let shared = TorURLSession()
 
     // Default (no proxy) session for local development when dev bypass is enabled.
-    private lazy var defaultSession: URLSession = {
+    private var defaultSession: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.waitsForConnectivity = true
         return URLSession(configuration: cfg)
     }()
 
     // Proxied (SOCKS5) session that routes through Tor.
-    private lazy var torSession: URLSession = {
+    private var torSession: URLSession = TorURLSession.makeTorSession()
+
+    var session: URLSession {
+        #if BITCHAT_DEV_ALLOW_CLEARNET
+        // Dev bypass: use direct session. Call sites may still await Tor if desired.
+        return defaultSession
+        #else
+        // Production: always use the Tor-proxied session. Call sites ensure readiness.
+        return torSession
+        #endif
+    }
+
+    // Recreate sessions so new clients bind to the fresh SOCKS/control ports after a Tor restart.
+    func rebuild() {
+        #if BITCHAT_DEV_ALLOW_CLEARNET
+        defaultSession = {
+            let cfg = URLSessionConfiguration.default
+            cfg.waitsForConnectivity = true
+            return URLSession(configuration: cfg)
+        }()
+        #endif
+        torSession = TorURLSession.makeTorSession()
+    }
+
+    private static func makeTorSession() -> URLSession {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.waitsForConnectivity = true
         // Keep in sync with TorManager defaults
@@ -31,10 +55,6 @@ final class TorURLSession {
         ]
         #else
         // iOS: CFNetwork SOCKS proxy keys are unavailable at compile time.
-        // Using the documented string keys keeps the build green. On some iOS
-        // versions, URLSession may ignore per-session SOCKS; we still enforce
-        // Tor via fail-closed gating and can add platform-specific transport
-        // if needed.
         cfg.connectionProxyDictionary = [
             "SOCKSEnable": 1,
             "SOCKSProxy": host,
@@ -42,15 +62,5 @@ final class TorURLSession {
         ]
         #endif
         return URLSession(configuration: cfg)
-    }()
-
-    var session: URLSession {
-        #if BITCHAT_DEV_ALLOW_CLEARNET
-        // Dev bypass: use direct session. Call sites may still await Tor if desired.
-        return defaultSession
-        #else
-        // Production: always use the Tor-proxied session. Call sites ensure readiness.
-        return torSession
-        #endif
     }
 }

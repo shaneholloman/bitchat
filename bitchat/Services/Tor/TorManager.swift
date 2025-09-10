@@ -24,11 +24,16 @@ final class TorManager: ObservableObject {
     let controlPort: Int = 39051
 
     // State
+    // True only when SOCKS is reachable AND bootstrap has reached 100%.
     @Published private(set) var isReady: Bool = false
     @Published private(set) var isStarting: Bool = false
     @Published private(set) var lastError: Error?
     @Published private(set) var bootstrapProgress: Int = 0
     @Published private(set) var bootstrapSummary: String = ""
+    
+    // Internal readiness trackers
+    private var socksReady: Bool = false { didSet { recomputeReady() } }
+    private var restarting: Bool = false
 
     // Whether the app must enforce Tor for all connections (fail-closed).
     // This is the default. For local development, you may compile with
@@ -50,6 +55,7 @@ final class TorManager: ObservableObject {
 
     private var didStart = false
     private var controlMonitorStarted = false
+    private var pathMonitor: NWPathMonitor?
 
     private init() {}
 
@@ -62,6 +68,7 @@ final class TorManager: ObservableObject {
         lastError = nil
         ensureFilesystemLayout()
         startTor()
+        startPathMonitorIfNeeded()
     }
 
     /// Await Tor bootstrap to readiness. Returns true if network is permitted (Tor ready or dev bypass).
@@ -257,20 +264,18 @@ final class TorManager: ObservableObject {
 
         // Start control-port monitor and probe readiness asynchronously
         startControlMonitorIfNeeded()
-        // Start control-port monitor and probe readiness asynchronously
-        startControlMonitorIfNeeded()
-        Task.detached(priority: .utility) { [weak self] in
+        Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             let ready = await self.waitForSocksReady(timeout: 60.0)
             await MainActor.run {
-                self.isReady = ready
-                self.isStarting = false
+                self.socksReady = ready
                 if !ready {
                     self.lastError = NSError(domain: "TorManager", code: -12, userInfo: [NSLocalizedDescriptionKey: "Tor SOCKS not reachable after dlopen start"])
                     SecureLogger.log("TorManager: SOCKS not reachable (timeout)", category: SecureLogger.session, level: .error)
                 } else {
                     SecureLogger.log("TorManager: SOCKS ready at \(self.socksHost):\(self.socksPort)", category: SecureLogger.session, level: .info)
                 }
+                // isStarting will be cleared when bootstrap reaches 100%
             }
         }
 
@@ -330,18 +335,18 @@ final class TorManager: ObservableObject {
 
         // Start control monitor early
         startControlMonitorIfNeeded()
-        Task.detached(priority: .utility) { [weak self] in
+        Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             let ready = await self.waitForSocksReady(timeout: 60.0)
             await MainActor.run {
-                self.isReady = ready
-                self.isStarting = false
+                self.socksReady = ready
                 if ready {
                     SecureLogger.log("TorManager: SOCKS ready at \(self.socksHost):\(self.socksPort)", category: SecureLogger.session, level: .info)
                 } else {
                     self.lastError = NSError(domain: "TorManager", code: -13, userInfo: [NSLocalizedDescriptionKey: "Tor SOCKS not reachable after static start"])
                     SecureLogger.log("TorManager: SOCKS not reachable (timeout)", category: SecureLogger.session, level: .error)
                 }
+                // isStarting will be cleared when bootstrap reaches 100%
             }
         }
         return true
@@ -349,102 +354,170 @@ final class TorManager: ObservableObject {
     
     // MARK: - ControlPort monitoring (bootstrap progress)
     private func startControlMonitorIfNeeded() {
-        #if os(iOS)
-        // iOS: no-op; we skip ControlPort monitoring to keep startup lean.
-        return
-        #else
         guard !controlMonitorStarted else { return }
         controlMonitorStarted = true
-        Task.detached(priority: .background) { [weak self] in
-            guard let self else { return }
-            await self.controlMonitorLoop()
+        // Use a simple GETINFO poll on all platforms to avoid long-lived blocking streams
+        Task.detached(priority: .utility) { [weak self] in
+            await self?.bootstrapPollLoop()
         }
-        #endif
     }
 
-    private func controlMonitorLoop() async {
+    private func controlMonitorLoop() async {}
+
+    private func tryControlSessionOnce() async -> Bool { false }
+
+    // iOS: Poll GETINFO periodically to track bootstrap progress without long-lived control readers.
+    private func bootstrapPollLoop() async {
         let deadline = Date().addingTimeInterval(75)
         while Date() < deadline {
-            if await self.tryControlSessionOnce() { return }
+            if let info = await controlGetBootstrapInfo() {
+                await MainActor.run {
+                    self.bootstrapProgress = info.progress
+                    self.bootstrapSummary = info.summary
+                    if info.progress >= 100 { self.isStarting = false }
+                    self.recomputeReady()
+                }
+                if info.progress >= 100 { break }
+            }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
     }
 
-    private func tryControlSessionOnce() async -> Bool {
-        guard let cookiePath = dataDirectoryURL()?.appendingPathComponent("control_auth_cookie") else { return false }
-        guard let cookie = try? Data(contentsOf: cookiePath) else { return false }
+    private func controlGetBootstrapInfo() async -> (progress: Int, summary: String)? {
+        guard let text = await controlExchange(lines: ["GETINFO status/bootstrap-phase"], timeout: 2.0) else { return nil }
+        var progress = self.bootstrapProgress
+        var summary = self.bootstrapSummary
+        // Search entire response for PROGRESS and SUMMARY tokens
+        // Typical: "250-status/bootstrap-phase=NOTICE BOOTSTRAP PROGRESS=75 TAG=... SUMMARY=\"...\"\r\n250 OK\r\n"
+        let tokens = text.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ").split(separator: " ")
+        for t in tokens {
+            if t.hasPrefix("PROGRESS=") {
+                progress = Int(t.split(separator: "=").last ?? "0") ?? progress
+            } else if t.hasPrefix("SUMMARY=") {
+                let raw = String(t.dropFirst("SUMMARY=".count))
+                summary = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            }
+        }
+        return (progress, summary)
+    }
+
+    // MARK: - Foreground recovery and control helpers
+
+    func ensureRunningOnForeground() {
+        // If we can talk to ControlPort, wake Tor and verify bootstrap; else restart.
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            // Avoid restarts while starting/restarting
+            if await MainActor.run(body: { self.isStarting || self.restarting }) { return }
+            let ok = await self.controlPingBootstrap()
+            if ok {
+                _ = await self.controlSendSignal("ACTIVE")
+                return
+            }
+            // If Tor is still bootstrapping (SOCKS up but progress < 100), don't thrash; let monitor update
+            let stillBootstrapping = await MainActor.run(body: { self.socksReady && self.bootstrapProgress < 100 })
+            if stillBootstrapping { return }
+            await self.restartTor()
+        }
+    }
+
+    func goDormantOnBackground() {
+        Task.detached { [weak self] in
+            _ = await self?.controlSendSignal("DORMANT")
+        }
+    }
+
+    private func restartTor() async {
+        await MainActor.run { self.restarting = true; self.isReady = false; self.socksReady = false; self.bootstrapProgress = 0; self.bootstrapSummary = ""; self.isStarting = true }
+        // Try graceful shutdown if control is reachable
+        _ = await controlSendSignal("SHUTDOWN")
+        // Wait for SOCKS to go down
+        let downDeadline = Date().addingTimeInterval(5)
+        while Date() < downDeadline {
+            if await !probeSocksOnce() { break }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        await MainActor.run { self.didStart = false }
+        await MainActor.run { self.startIfNeeded() }
+        await MainActor.run { self.restarting = false }
+    }
+
+    private func recomputeReady() {
+        let ready = socksReady && bootstrapProgress >= 100
+        if ready != isReady {
+            isReady = ready
+        }
+    }
+
+    private func startPathMonitorIfNeeded() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        pathMonitor = monitor
+        let queue = DispatchQueue(label: "TorPathMonitor")
+        monitor.pathUpdateHandler = { [weak self] _ in
+            // On any path change, poke Tor/recover (hop to main actor).
+            Task { @MainActor in
+                self?.ensureRunningOnForeground()
+            }
+        }
+        monitor.start(queue: queue)
+    }
+
+    // Lightweight control: authenticate and GETINFO bootstrap-phase.
+    private func controlPingBootstrap(timeout: TimeInterval = 3.0) async -> Bool {
+        let data = await controlExchange(lines: ["GETINFO status/bootstrap-phase"], timeout: timeout)
+        guard let text = data else { return false }
+        return text.contains("status/bootstrap-phase")
+    }
+
+    private func controlSendSignal(_ signal: String, timeout: TimeInterval = 3.0) async -> Bool {
+        let text = await controlExchange(lines: ["SIGNAL \(signal)"], timeout: timeout)
+        return (text?.contains("250")) == true
+    }
+
+    private func controlExchange(lines: [String], timeout: TimeInterval) async -> String? {
+        guard let cookiePath = dataDirectoryURL()?.appendingPathComponent("control_auth_cookie"),
+              let cookie = try? Data(contentsOf: cookiePath) else { return nil }
         let cookieHex = cookie.map { String(format: "%02X", $0) }.joined()
 
-        var inStream: InputStream?
-        var outStream: OutputStream?
-        Stream.getStreamsToHost(withName: controlHost, port: controlPort, inputStream: &inStream, outputStream: &outStream)
-        guard let input = inStream, let output = outStream else { return false }
-        input.open(); output.open()
+        let queue = DispatchQueue(label: "TorControl", qos: .userInitiated)
+        let params = NWParameters.tcp
+        guard let port = NWEndpoint.Port(rawValue: UInt16(controlPort)) else { return nil }
+        let endpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: port)
+        let conn = NWConnection(to: endpoint, using: params)
 
-        func send(_ s: String) {
-            let bytes = Array(s.utf8)
-            _ = bytes.withUnsafeBytes { raw -> Int in
-                guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return 0 }
-                return output.write(base, maxLength: bytes.count)
-            }
+        var resultText = ""
+        var completed = false
+        func send(_ text: String) {
+            let data = (text + "\r\n").data(using: .utf8) ?? Data()
+            conn.send(content: data, completion: .contentProcessed { _ in })
         }
-        func readLine(timeout: TimeInterval = 3.0) -> String? {
-            var data = Data()
-            let start = Date()
-            var buf = [UInt8](repeating: 0, count: 1024)
-            while Date().timeIntervalSince(start) < timeout {
-                if input.hasBytesAvailable {
-                    let n = input.read(&buf, maxLength: buf.count)
-                    if n > 0 {
-                        data.append(buf, count: n)
-                        if let range = data.range(of: Data([13,10])) { // CRLF
-                            let lineData = data.prefix(upTo: range.lowerBound)
-                            let line = String(data: lineData, encoding: .utf8)
-                            let rest = data.suffix(from: range.upperBound)
-                            data = Data(rest)
-                            return line
+        func receiveLoop(deadline: Date) async {
+            while Date() < deadline {
+                let ok: Bool = await withCheckedContinuation { cont in
+                    conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, isComplete, error in
+                        if let data = data, !data.isEmpty, let s = String(data: data, encoding: .utf8) {
+                            resultText.append(s)
                         }
-                    } else if n == 0 {
-                        break
+                        if isComplete || error != nil { completed = true }
+                        cont.resume(returning: true)
                     }
                 }
-                usleep(20_000)
-            }
-            return nil
-        }
-
-        // Greeting
-        _ = readLine()
-        send("AUTHENTICATE \(cookieHex)\r\n")
-        guard let auth = readLine(), auth.hasPrefix("250") else {
-            input.close(); output.close(); return false
-        }
-        send("SETEVENTS STATUS_CLIENT\r\n")
-        _ = readLine() // 250 OK
-
-        while true {
-            if Task.isCancelled { break }
-            guard let line = readLine(timeout: 10.0) else { continue }
-            if line.hasPrefix("650 ") && line.contains("BOOTSTRAP") {
-                var progress = self.bootstrapProgress
-                var summary = self.bootstrapSummary
-                for part in line.split(separator: " ") {
-                    if part.hasPrefix("PROGRESS=") {
-                        progress = Int(part.split(separator: "=").last ?? "0") ?? progress
-                    } else if part.hasPrefix("SUMMARY=") {
-                        let raw = String(part.dropFirst("SUMMARY=".count))
-                        summary = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                    }
-                }
-                await MainActor.run {
-                    self.bootstrapProgress = progress
-                    self.bootstrapSummary = summary
-                }
-                if progress >= 100 { break }
+                if !ok || completed { break }
+                // Small delay to avoid tight loop
+                try? await Task.sleep(nanoseconds: 20_000_000)
             }
         }
 
-        input.close(); output.close()
-        return true
+        conn.start(queue: queue)
+        // Send immediately; NWConnection will queue until ready
+        send("AUTHENTICATE \(cookieHex)")
+        // Send requested lines
+        for line in lines { send(line) }
+        // Ask tor to close
+        send("QUIT")
+        await receiveLoop(deadline: Date().addingTimeInterval(timeout))
+        conn.cancel()
+        return resultText
     }
 }
