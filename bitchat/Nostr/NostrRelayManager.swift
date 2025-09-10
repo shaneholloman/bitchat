@@ -194,8 +194,9 @@ class NostrRelayManager: ObservableObject {
             // SecureLogger.log("📋 Subscription filter JSON: \(messageString.prefix(200))...", 
             //                 category: SecureLogger.session, level: .debug)
             
-            // Target specific relays if provided; else all connections
-            let urls = relayUrls ?? Self.defaultRelays
+            // Target specific relays if provided; else default. Filter permanently failed relays.
+            let baseUrls = relayUrls ?? Self.defaultRelays
+            let urls = baseUrls.filter { !isPermanentlyFailed($0) }
             ensureConnections(to: urls)
             let targets: [(String, URLSessionWebSocketTask)] = urls.compactMap { url in
                 connections[url].map { (url, $0) }
@@ -276,6 +277,9 @@ class NostrRelayManager: ObservableObject {
         
         // Skip if we already have a connection object
         if connections[urlString] != nil {
+            return
+        }
+        if isPermanentlyFailed(urlString) {
             return
         }
         
@@ -483,18 +487,21 @@ class NostrRelayManager: ObservableObject {
         subscriptions.removeValue(forKey: relayUrl)
         updateRelayStatus(relayUrl, isConnected: false, error: error)
         
-        // Check if this is a DNS error
+        // Check if this is a DNS or handshake error; treat as permanent
         let errorDescription = error.localizedDescription.lowercased()
+        let ns = error as NSError
         if errorDescription.contains("hostname could not be found") || 
-           errorDescription.contains("dns") {
-            // Only log once for DNS failures
+           errorDescription.contains("dns") ||
+           (ns.domain == NSURLErrorDomain && ns.code == NSURLErrorBadServerResponse) {
             if relays.first(where: { $0.url == relayUrl })?.lastError == nil {
-                SecureLogger.log("Nostr relay DNS failure for \(relayUrl) - not retrying", category: SecureLogger.session, level: .warning)
+                SecureLogger.log("Nostr relay permanent failure for \(relayUrl) - not retrying (code=\(ns.code))", category: SecureLogger.session, level: .warning)
             }
-            // Mark relay as permanently failed
             if let index = relays.firstIndex(where: { $0.url == relayUrl }) {
                 relays[index].lastError = error
+                relays[index].reconnectAttempts = maxReconnectAttempts
+                relays[index].nextReconnectTime = nil
             }
+            pendingSubscriptions[relayUrl] = nil
             return
         }
         
@@ -574,6 +581,18 @@ class NostrRelayManager: ObservableObject {
         
         // Reconnect
         connect()
+    }
+
+    // MARK: - Failure classification
+    private func isPermanentlyFailed(_ url: String) -> Bool {
+        guard let r = relays.first(where: { $0.url == url }) else { return false }
+        if r.reconnectAttempts >= maxReconnectAttempts { return true }
+        if let ns = r.lastError as NSError?, ns.domain == NSURLErrorDomain {
+            if ns.code == NSURLErrorBadServerResponse || ns.code == NSURLErrorCannotFindHost {
+                return true
+            }
+        }
+        return false
     }
 }
 
