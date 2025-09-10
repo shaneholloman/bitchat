@@ -530,23 +530,23 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         // Start mesh service immediately
         meshService.startServices()
         
-        // Announce Tor status to the chat timeline as early as possible
+        // Announce Tor status (geohash-only; do not show in mesh chat)
         if TorManager.shared.torEnforced && !torStatusAnnounced {
             torStatusAnnounced = true
-            addPublicSystemMessage("starting tor...")
+            addGeohashOnlySystemMessage("starting tor...")
             // Suppress incremental Tor progress messages; only show initial start and readiness.
             torProgressCancellable = nil
             Task.detached {
                 let ready = await TorManager.shared.awaitReady()
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    if ready { self.addPublicSystemMessage("tor started. routing all chats via tor for privacy.") }
-                    else { self.addPublicSystemMessage("still waiting for tor to start...") }
+                    if ready { self.addGeohashOnlySystemMessage("tor started. routing all chats via tor for privacy.") }
+                    else { self.addGeohashOnlySystemMessage("still waiting for tor to start...") }
                 }
             }
         } else if !TorManager.shared.torEnforced && !torStatusAnnounced {
             torStatusAnnounced = true
-            addPublicSystemMessage("development build: tor bypass enabled.")
+            addGeohashOnlySystemMessage("development build: tor bypass enabled.")
         }
 
         // Initialize Nostr services
@@ -4918,6 +4918,14 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             geoTimelines[ch.geohash] = arr
         }
         objectWillChange.send()
+    }
+
+    /// Add a system message only if viewing a geohash location channel (never post to mesh).
+    @MainActor
+    func addGeohashOnlySystemMessage(_ content: String) {
+        if case .location = activeChannel {
+            addPublicSystemMessage(content)
+        }
     }
     // Send a public message without adding a local user echo.
     // Used for emotes where we want a local system-style confirmation instead.
