@@ -2958,6 +2958,14 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         // When in a geohash channel, allow resolving by geohash participant nickname
         switch LocationChannelManager.shared.selectedChannel {
         case .location:
+            // If a disambiguation suffix is present (e.g., "name#abcd"), try exact displayName match first
+            if nickname.contains("#") {
+                if let person = visibleGeohashPeople().first(where: { $0.displayName == nickname }) {
+                    let convKey = "nostr_" + String(person.id.prefix(TransportConfig.nostrConvKeyPrefixLength))
+                    nostrKeyMapping[convKey] = person.id
+                    return convKey
+                }
+            }
             let base: String = {
                 if let hashIndex = nickname.firstIndex(of: "#") { return String(nickname[..<hashIndex]) }
                 return nickname
