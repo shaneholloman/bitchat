@@ -76,9 +76,13 @@ struct BitchatApp: App {
                         TorManager.shared.setAppForeground(true)
                         // On initial cold launch, Tor was just started in onAppear.
                         // Skip the deterministic restart the first time we become active.
-                        if didHandleInitialActive {
+                        if didHandleInitialActive && didEnterBackground {
                             // Ensure Tor is healthy; restart deterministically, then wait until ready
                             TorManager.shared.ensureRunningOnForeground()
+                        } else {
+                            didHandleInitialActive = true
+                        }
+                        didEnterBackground = false
                         } else {
                             didHandleInitialActive = true
                         }
