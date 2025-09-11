@@ -367,6 +367,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     // Track whether a Tor restart is pending so we only announce
     // "tor restarted" after an actual restart, not the first launch.
     private var torRestartPending: Bool = false
+    // Ensure we set up DM subscription only once per app session
+    private var nostrHandlersSetup: Bool = false
     
     // MARK: - Caches
     
@@ -565,9 +567,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             }
             nostrRelayManager = NostrRelayManager.shared
             SecureLogger.log("Initializing Nostr relay connections", category: SecureLogger.session, level: .debug)
-            nostrRelayManager?.connect()
-            // Set up Nostr message handling directly once Tor is ready
-            setupNostrMessageHandling()
+            // Connect is managed centrally on scene activation; avoid duplicate connects here
 
             // Attempt to flush any queued outbox after Nostr comes online
             messageRouter.flushAllOutbox()
@@ -622,6 +622,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                         guard let self = self else { return }
                         if connected {
                             Task { @MainActor in
+                                // Set up DM handler once on first connect
+                                if !self.nostrHandlersSetup {
+                                    self.setupNostrMessageHandling()
+                                    self.nostrHandlersSetup = true
+                                }
                                 self.resubscribeCurrentGeohash()
                                 // Re-init sampling for regional + bookmarked geohashes after reconnect
                                 let regional = LocationChannelManager.shared.availableChannels.map { $0.geohash }
