@@ -226,9 +226,6 @@ class NostrRelayManager: ObservableObject {
         }
         messageHandlers[id] = handler
         
-        SecureLogger.log("📡 Subscribing to Nostr filter id=\(id) kinds=\(filter.kinds ?? []) since=\(filter.since ?? 0)", 
-                        category: SecureLogger.session, level: .debug)
-        
         let req = NostrRequest.subscribe(id: id, filters: [filter])
         
         do {
@@ -244,63 +241,23 @@ class NostrRelayManager: ObservableObject {
             // Target specific relays if provided; else default. Filter permanently failed relays.
             let baseUrls = relayUrls ?? Self.defaultRelays
             let urls = baseUrls.filter { !isPermanentlyFailed($0) }
-            // If no connections exist yet (e.g., app launch), avoid initiating connections
-            // from subscribe. Just ensure relays are listed and queue subs to flush later.
-            if connections.isEmpty {
-                let existingSet = Set(relays.map { $0.url })
-                for url in urls where !existingSet.contains(url) {
-                    relays.append(Relay(url: url))
-                }
-                for url in urls {
-                    var map = self.pendingSubscriptions[url] ?? [:]
-                    map[id] = messageString
-                    self.pendingSubscriptions[url] = map
-                }
-                SecureLogger.log("📋 Queued subscription id=\(id) for \(urls.count) relay(s)",
-                                 category: SecureLogger.session, level: .debug)
-                return
+            // Always queue subscriptions; sending happens when a relay reports connected
+            let existingSet = Set(relays.map { $0.url })
+            for url in urls where !existingSet.contains(url) {
+                relays.append(Relay(url: url))
             }
-            ensureConnections(to: urls)
-            let targets: [(String, URLSessionWebSocketTask)] = urls.compactMap { url in
-                connections[url].map { (url, $0) }
+            for url in urls {
+                var map = self.pendingSubscriptions[url] ?? [:]
+                map[id] = messageString
+                self.pendingSubscriptions[url] = map
             }
-
-            for (relayUrl, connection) in targets {
-                // Skip if already subscribed for this relay
-                if self.subscriptions[relayUrl]?.contains(id) == true {
-                    continue
+            SecureLogger.log("📋 Queued subscription id=\(id) for \(urls.count) relay(s)",
+                             category: SecureLogger.session, level: .debug)
+            // If some targets are already connected, flush immediately for them
+            for url in urls {
+                if let r = relays.first(where: { $0.url == url }), r.isConnected {
+                    flushPendingSubscriptions(for: url)
                 }
-                connection.send(.string(messageString)) { error in
-                    if let error = error {
-                        SecureLogger.log("❌ Failed to send subscription to \(relayUrl): \(error)", 
-                                        category: SecureLogger.session, level: .error)
-                    } else {
-                        // SecureLogger.log("✅ Subscription '\(id)' sent to relay: \(relayUrl)", 
-                        //                 category: SecureLogger.session, level: .debug)
-                        // Subscription sent successfully
-                        Task { @MainActor in
-                            var subs = self.subscriptions[relayUrl] ?? Set<String>()
-                            subs.insert(id)
-                            self.subscriptions[relayUrl] = subs
-                        }
-                    }
-                }
-            }
-            
-            // If some target relays are not connected yet, queue desired subscriptions to flush later
-            let notConnected = urls.filter { connections[$0] == nil }
-            if !notConnected.isEmpty {
-                for url in notConnected {
-                    var map = self.pendingSubscriptions[url] ?? [:]
-                    map[id] = messageString
-                    self.pendingSubscriptions[url] = map
-                }
-                SecureLogger.log("⚠️ Queued subscription '" + id + "' for \(notConnected.count) pending relay(s)",
-                                category: SecureLogger.session, level: .debug)
-            }
-            if connections.isEmpty {
-                SecureLogger.log("⚠️ No relay connections available for subscription", 
-                                category: SecureLogger.session, level: .warning)
             }
         } catch {
             SecureLogger.log("❌ Failed to encode subscription request: \(error)", 
