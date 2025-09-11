@@ -57,17 +57,26 @@ struct BitchatApp: App {
                     case .background:
                         // Keep BLE mesh running in background; BLEService adapts scanning automatically
                         // Optionally nudge Tor to dormant to save power
+                        TorManager.shared.setAppForeground(false)
                         TorManager.shared.goDormantOnBackground()
+                        // Proactively disconnect Nostr to avoid spurious socket errors while Tor is down
+                        NostrRelayManager.shared.disconnect()
                         break
                     case .active:
                         // Restart services when becoming active
                         chatViewModel.meshService.startServices()
-                        // Ensure Tor is healthy; restart if suspended; wake ACTIVE
+                        TorManager.shared.setAppForeground(true)
+                        // Ensure Tor is healthy; restart deterministically, then wait until ready
                         TorManager.shared.ensureRunningOnForeground()
-                        // Rebuild proxied sessions to bind to live Tor
-                        TorURLSession.shared.rebuild()
-                        // Reconnect Nostr via fresh sessions; will gate until Tor 100%
-                        NostrRelayManager.shared.resetAllConnections()
+                        Task.detached {
+                            let _ = await TorManager.shared.awaitReady(timeout: 60)
+                            await MainActor.run {
+                                // Rebuild proxied sessions to bind to the live Tor after readiness
+                                TorURLSession.shared.rebuild()
+                                // Reconnect Nostr via fresh sessions; will gate until Tor 100%
+                                NostrRelayManager.shared.resetAllConnections()
+                            }
+                        }
                         checkForSharedContent()
                     case .inactive:
                         break

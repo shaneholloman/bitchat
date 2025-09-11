@@ -42,6 +42,8 @@ class NostrRelayManager: ObservableObject {
     private var subscriptions: [String: Set<String>] = [:] // relay URL -> active subscription IDs
     private var pendingSubscriptions: [String: [String: String]] = [:] // relay URL -> (subscription id -> encoded REQ JSON)
     private var messageHandlers: [String: (NostrEvent) -> Void] = [:]
+    // Coalesce duplicate subscribe requests for the same id within a short window
+    private var subscribeCoalesce: [String: Date] = [:]
     private var cancellables = Set<AnyCancellable>()
     
     // Message queue for reliability
@@ -63,6 +65,8 @@ class NostrRelayManager: ObservableObject {
     
     // Reconnection timer
     private var reconnectionTimer: Timer?
+    // Bump generation to invalidate scheduled reconnects when we reset/disconnect
+    private var connectionGeneration: Int = 0
     
     init() {
         // Initialize with default relays
@@ -91,15 +95,28 @@ class NostrRelayManager: ObservableObject {
     
     /// Disconnect from all relays
     func disconnect() {
+        connectionGeneration &+= 1
         for (_, task) in connections {
             task.cancel(with: .goingAway, reason: nil)
         }
         connections.removeAll()
+        // Clear known subscriptions and any queued subs since connections are gone
+        subscriptions.removeAll()
+        pendingSubscriptions.removeAll()
         updateConnectionStatus()
     }
     
     /// Ensure connections exist to the given relay URLs (idempotent).
     func ensureConnections(to relayUrls: [String]) {
+        if TorManager.shared.torEnforced && !TorManager.shared.isReady {
+            // Defer until Tor is fully ready; avoid queuing connection attempts early
+            Task.detached { [weak self] in
+                guard let self = self else { return }
+                let ready = await TorManager.shared.awaitReady()
+                await MainActor.run { if ready { self.ensureConnections(to: relayUrls) } }
+            }
+            return
+        }
         let existing = Set(relays.map { $0.url })
         for url in Set(relayUrls) {
             if !existing.contains(url) {
@@ -113,6 +130,15 @@ class NostrRelayManager: ObservableObject {
 
     /// Send an event to specified relays (or all if none specified)
     func sendEvent(_ event: NostrEvent, to relayUrls: [String]? = nil) {
+        if TorManager.shared.torEnforced && !TorManager.shared.isReady {
+            // Defer sends until Tor is ready to avoid premature queueing
+            Task.detached { [weak self] in
+                guard let self = self else { return }
+                let ready = await TorManager.shared.awaitReady()
+                await MainActor.run { if ready { self.sendEvent(event, to: relayUrls) } }
+            }
+            return
+        }
         let targetRelays = relayUrls ?? Self.defaultRelays
         ensureConnections(to: targetRelays)
 
@@ -177,6 +203,27 @@ class NostrRelayManager: ObservableObject {
         relayUrls: [String]? = nil,
         handler: @escaping (NostrEvent) -> Void
     ) {
+        // Coalesce rapid duplicate subscribe requests only if a handler already exists
+        let now = Date()
+        if messageHandlers[id] != nil {
+            if let last = subscribeCoalesce[id], now.timeIntervalSince(last) < 1.0 {
+                return
+            }
+        }
+        subscribeCoalesce[id] = now
+        if TorManager.shared.torEnforced && !TorManager.shared.isReady {
+            // Defer subscription setup until Tor is ready; avoid queuing subs early
+            Task.detached { [weak self] in
+                guard let self = self else { return }
+                let ready = await TorManager.shared.awaitReady()
+                await MainActor.run {
+                    if ready {
+                        self.subscribe(filter: filter, id: id, relayUrls: relayUrls, handler: handler)
+                    }
+                }
+            }
+            return
+        }
         messageHandlers[id] = handler
         
         SecureLogger.log("📡 Subscribing to Nostr filter id=\(id) kinds=\(filter.kinds ?? []) since=\(filter.since ?? 0)", 
@@ -248,6 +295,8 @@ class NostrRelayManager: ObservableObject {
     /// Unsubscribe from a subscription
     func unsubscribe(id: String) {
         messageHandlers.removeValue(forKey: id)
+        // Allow immediate re-subscription by clearing coalescer timestamp
+        subscribeCoalesce.removeValue(forKey: id)
         
         let req = NostrRequest.close(id: id)
         let message = try? encoder.encode(req)
@@ -273,6 +322,11 @@ class NostrRelayManager: ObservableObject {
         guard let url = URL(string: urlString) else { 
             SecureLogger.log("Invalid relay URL: \(urlString)", category: SecureLogger.session, level: .warning)
             return 
+        }
+
+        // Avoid initiating connections while app is backgrounded; we'll reconnect on foreground
+        if TorManager.shared.torEnforced && !TorManager.shared.isForeground() {
+            return
         }
         
         // Skip if we already have a connection object
@@ -528,9 +582,11 @@ class NostrRelayManager: ObservableObject {
         
         
         // Schedule reconnection with exponential backoff
+        let gen = connectionGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + backoffInterval) { [weak self] in
             guard let self = self else { return }
-            
+            // Ignore stale scheduled reconnects from a previous generation
+            guard gen == self.connectionGeneration else { return }
             // Check if we should still reconnect (relay might have been removed)
             if self.relays.contains(where: { $0.url == relayUrl }) {
                 self.connectToRelay(relayUrl)
@@ -571,6 +627,8 @@ class NostrRelayManager: ObservableObject {
     /// Reset all relay connections
     func resetAllConnections() {
         disconnect()
+        // New generation begins now
+        connectionGeneration &+= 1
         
         // Reset all relay states
         for index in relays.indices {

@@ -6,6 +6,16 @@ import Darwin
 @_silgen_name("tor_main")
 private func tor_main_c(_ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32
 
+// Preferred: tiny C glue that uses Tor's embedding API (tor_api.h)
+@_silgen_name("tor_host_start")
+private func tor_host_start(_ dataDir: UnsafePointer<CChar>, _ socksAddr: UnsafePointer<CChar>, _ controlAddr: UnsafePointer<CChar>, _ shutdownFast: Int32) -> Int32
+@_silgen_name("tor_host_shutdown")
+private func tor_host_shutdown() -> Int32
+@_silgen_name("tor_host_restart")
+private func tor_host_restart(_ dataDir: UnsafePointer<CChar>, _ socksAddr: UnsafePointer<CChar>, _ controlAddr: UnsafePointer<CChar>, _ shutdownFast: Int32) -> Int32
+@_silgen_name("tor_host_is_running")
+private func tor_host_is_running() -> Int32
+
 /// Minimal Tor integration scaffold.
 /// - Boots a local Tor client (once integrated) and exposes a SOCKS5 proxy
 ///   on 127.0.0.1:socksPort. All app networking should await readiness and
@@ -56,12 +66,16 @@ final class TorManager: ObservableObject {
     private var didStart = false
     private var controlMonitorStarted = false
     private var pathMonitor: NWPathMonitor?
+    private var isAppForeground: Bool = true
+    private var lastRestartAt: Date? = nil
 
     private init() {}
 
     // MARK: - Public API
 
     func startIfNeeded() {
+        // Do not start in background; caller should wait for foreground
+        guard isAppForeground else { return }
         guard !didStart else { return }
         didStart = true
         isStarting = true
@@ -71,10 +85,21 @@ final class TorManager: ObservableObject {
         startPathMonitorIfNeeded()
     }
 
+    /// Called by app lifecycle to indicate foreground/background state.
+    func setAppForeground(_ foreground: Bool) {
+        isAppForeground = foreground
+    }
+
+    /// Foreground state accessor for other @MainActor clients.
+    func isForeground() -> Bool { isAppForeground }
+
     /// Await Tor bootstrap to readiness. Returns true if network is permitted (Tor ready or dev bypass).
     /// Nonisolated to avoid blocking the main actor during waits.
     nonisolated func awaitReady(timeout: TimeInterval = 25.0) async -> Bool {
-        await MainActor.run { self.startIfNeeded() }
+        // Only start Tor if we're in foreground; otherwise just wait for it
+        await MainActor.run {
+            if self.isAppForeground { self.startIfNeeded() }
+        }
         let deadline = Date().addingTimeInterval(timeout)
         // Early exit if network already permitted
         if await MainActor.run(body: { self.networkPermitted }) { return true }
@@ -131,6 +156,7 @@ final class TorManager: ObservableObject {
         lines.append("CookieAuthentication 1")
         lines.append("AvoidDiskWrites 1")
         lines.append("MaxClientCircuitsPending 8")
+        lines.append("ShutdownWaitLength 0")
         // Keep defaults for guard/exit selection to preserve anonymity properties
         return lines.joined(separator: "\n") + "\n"
     }
@@ -140,11 +166,9 @@ final class TorManager: ObservableObject {
     /// Start the embedded Tor. This stub intentionally compiles without any Tor dependency.
     /// Integrate your Tor framework here and set `isReady = true` once bootstrapped.
     private func startTor() {
-        // If linked statically (xcframework with static framework), call tor_run_main directly.
-        if startTorViaLinkedSymbol() { return }
-
-        // Dynamic loading path is intended for dynamic frameworks only.
-        if startTorViaDlopen() { return }
+        // Prefer the embedding API wrapper which cleanly supports restart.
+        // Avoid fallback to prevent accidental second instances in-process.
+        if startTorViaEmbedAPI() { return }
 
         #if BITCHAT_DEV_ALLOW_CLEARNET
         // Dev bypass: permit network immediately (no Tor). Use ONLY for local development.
@@ -155,6 +179,50 @@ final class TorManager: ObservableObject {
         self.isReady = false
         self.isStarting = false
         #endif
+    }
+
+    // MARK: - Embed API path (owning controller FD + clean restart)
+    private func startTorViaEmbedAPI() -> Bool {
+        guard let dir = dataDirectoryURL()?.path else { return false }
+        let socks = "\(socksHost):\(socksPort)"
+        let control = "\(controlHost):\(controlPort)"
+        var started = false
+        // If already running (per C glue), treat as started
+        if tor_host_is_running() != 0 {
+            SecureLogger.log("TorManager: embed reports already running", category: SecureLogger.session, level: .info)
+            return true
+        }
+        dir.withCString { dptr in
+            socks.withCString { sptr in
+                control.withCString { cptr in
+                    let rc = tor_host_start(dptr, sptr, cptr, 1)
+                    started = (rc == 0)
+                    if rc != 0 {
+                        SecureLogger.log("TorManager: tor_host_start failed rc=\(rc)", category: SecureLogger.session, level: .error)
+                    } else {
+                        SecureLogger.log("TorManager: tor_host_start OK (\(socks), control \(control))", category: SecureLogger.session, level: .info)
+                    }
+                }
+            }
+        }
+        if !started { return false }
+
+        // Start monitors and probe readiness
+        startControlMonitorIfNeeded()
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            let ready = await self.waitForSocksReady(timeout: 60.0)
+            await MainActor.run {
+                self.socksReady = ready
+                if ready {
+                    SecureLogger.log("TorManager: SOCKS ready at \(self.socksHost):\(self.socksPort) [embed]", category: SecureLogger.session, level: .info)
+                } else {
+                    self.lastError = NSError(domain: "TorManager", code: -14, userInfo: [NSLocalizedDescriptionKey: "Tor SOCKS not reachable after embed start"])
+                    SecureLogger.log("TorManager: SOCKS not reachable (timeout) [embed]", category: SecureLogger.session, level: .error)
+                }
+            }
+        }
+        return true
     }
     /// Probe the local SOCKS port until it's ready or a timeout elapses.
     private func waitForSocksReady(timeout: TimeInterval) async -> Bool {
@@ -404,48 +472,69 @@ final class TorManager: ObservableObject {
     // MARK: - Foreground recovery and control helpers
 
     func ensureRunningOnForeground() {
-        // If we can talk to ControlPort, wake Tor and verify bootstrap; else restart.
+        // iOS can suspend Tor harshly; the most reliable approach for
+        // embedding is to restart Tor every time we become active.
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            // Avoid restarts while starting/restarting
-            if await MainActor.run(body: { self.isStarting || self.restarting }) { return }
-            let ok = await self.controlPingBootstrap()
-            if ok {
-                _ = await self.controlSendSignal("ACTIVE")
-                return
+            // Claim the restart under MainActor to avoid races
+            let claimed: Bool = await MainActor.run {
+                if self.isStarting || self.restarting { return false }
+                self.restarting = true
+                return true
             }
-            // If Tor is still bootstrapping (SOCKS up but progress < 100), don't thrash; let monitor update
-            let stillBootstrapping = await MainActor.run(body: { self.socksReady && self.bootstrapProgress < 100 })
-            if stillBootstrapping { return }
+            if !claimed { return }
             await self.restartTor()
+            await MainActor.run { self.restarting = false }
         }
     }
 
     func goDormantOnBackground() {
+        // Stricter model: fully stop Tor when app backgrounds to save power
+        // and avoid half-suspended states. We'll restart cleanly on .active.
         Task.detached { [weak self] in
-            _ = await self?.controlSendSignal("DORMANT")
+            guard let self = self else { return }
+            _ = tor_host_shutdown()
+            await MainActor.run {
+                self.isReady = false
+                self.socksReady = false
+                self.bootstrapProgress = 0
+                self.bootstrapSummary = ""
+                self.isStarting = false
+                self.didStart = false
+                // Allow control monitor to start anew on next start
+                self.controlMonitorStarted = false
+            }
         }
     }
 
     private func restartTor() async {
-        await MainActor.run { self.restarting = true; self.isReady = false; self.socksReady = false; self.bootstrapProgress = 0; self.bootstrapSummary = ""; self.isStarting = true }
-        // Try graceful shutdown if control is reachable
-        _ = await controlSendSignal("SHUTDOWN")
-        // Wait for SOCKS to go down
-        let downDeadline = Date().addingTimeInterval(5)
-        while Date() < downDeadline {
-            if await !probeSocksOnce() { break }
-            try? await Task.sleep(nanoseconds: 200_000_000)
+        await MainActor.run {
+            // Announce restart so UI can notify the user
+            NotificationCenter.default.post(name: .TorWillRestart, object: nil)
+            self.isReady = false
+            self.socksReady = false
+            self.bootstrapProgress = 0
+            self.bootstrapSummary = ""
+            self.isStarting = true
+            self.lastRestartAt = Date()
         }
+        // Prefer clean shutdown via owning controller FD; join the tor thread
+        _ = tor_host_shutdown()
+        // As a fallback, try control signal if needed (harmless if tor already down)
+        _ = await controlSendSignal("SHUTDOWN")
+        // Now start fresh
         await MainActor.run { self.didStart = false }
         await MainActor.run { self.startIfNeeded() }
-        await MainActor.run { self.restarting = false }
     }
 
     private func recomputeReady() {
         let ready = socksReady && bootstrapProgress >= 100
         if ready != isReady {
             isReady = ready
+            if ready {
+                // Broadcast readiness so clients can rebuild sessions and reconnect
+                NotificationCenter.default.post(name: .TorDidBecomeReady, object: nil)
+            }
         }
     }
 
@@ -457,10 +546,35 @@ final class TorManager: ObservableObject {
         monitor.pathUpdateHandler = { [weak self] _ in
             // On any path change, poke Tor/recover (hop to main actor).
             Task { @MainActor in
-                self?.ensureRunningOnForeground()
+                guard let self = self else { return }
+                // Avoid waking Tor while app is backgrounded; we'll handle on .active
+                if self.isAppForeground {
+                    self.pokeTorOnPathChange()
+                }
             }
         }
         monitor.start(queue: queue)
+    }
+
+    private func pokeTorOnPathChange() {
+        // If a restart just happened, avoid thrashing
+        if let last = lastRestartAt, Date().timeIntervalSince(last) < 3.0 {
+            return
+        }
+        // If we're starting or restarting, do nothing and let that complete
+        if isStarting || restarting { return }
+        Task.detached(priority: .userInitiated) {
+            let ok = await self.controlPingBootstrap()
+            if ok {
+                _ = await self.controlSendSignal("ACTIVE")
+                return
+            }
+            // If bootstrapping is underway, let it finish
+            let stillBootstrapping = await MainActor.run { self.socksReady && self.bootstrapProgress < 100 }
+            if stillBootstrapping { return }
+            // As a last resort, restart
+            await self.ensureRunningOnForeground()
+        }
     }
 
     // Lightweight control: authenticate and GETINFO bootstrap-phase.

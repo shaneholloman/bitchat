@@ -39,6 +39,10 @@
 		0481A3592E6D929E00FC845E /* tor-nolzma.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0481A3572E6D929E00FC845E /* tor-nolzma.xcframework */; };
 		0481A35B2E6D9BEF00FC845E /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 0481A35A2E6D9BEF00FC845E /* libz.tbd */; };
 		0481A35D2E6DA18600FC845E /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 0481A35C2E6DA18600FC845E /* libz.tbd */; };
+		0C0EFA112E6EAAAA00ABCDEF /* CTorHost.c in Sources */ = {isa = PBXBuildFile; fileRef = 0C0EFA102E6EAAAA00ABCDEF /* CTorHost.c */; };
+		0C0EFA122E6EAAAA00ABCDF0 /* CTorHost.c in Sources */ = {isa = PBXBuildFile; fileRef = 0C0EFA102E6EAAAA00ABCDEF /* CTorHost.c */; };
+		0C0EFA162E6EAABB00ABCDF4 /* TorNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C0EFA132E6EAABB00ABCDF1 /* TorNotifications.swift */; };
+		0C0EFA172E6EAABB00ABCDF5 /* TorNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C0EFA132E6EAABB00ABCDF1 /* TorNotifications.swift */; };
 		048A4BE72E5CCCC300162C4A /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048A4BE62E5CCCC300162C4A /* TransportConfig.swift */; };
 		048A4BE82E5CCCC300162C4A /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048A4BE62E5CCCC300162C4A /* TransportConfig.swift */; };
 		048A4BE92E5CCCC300162C4B /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048A4BE62E5CCCC300162C4A /* TransportConfig.swift */; };
@@ -220,10 +224,12 @@
 		047502B82E560F690083520F /* RelayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayController.swift; sourceTree = "<group>"; };
 		0481A3432E6D869F00FC845E /* TorManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorManager.swift; sourceTree = "<group>"; };
 		0481A3442E6D869F00FC845E /* TorURLSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorURLSession.swift; sourceTree = "<group>"; };
+		0C0EFA102E6EAAAA00ABCDEF /* CTorHost.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = CTorHost.c; sourceTree = "<group>"; };
+		0C0EFA132E6EAABB00ABCDF1 /* TorNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorNotifications.swift; sourceTree = "<group>"; };
 		0481A3532E6D877600FC845E /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		0481A3572E6D929E00FC845E /* tor-nolzma.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = "tor-nolzma.xcframework"; sourceTree = "<group>"; };
 		0481A35A2E6D9BEF00FC845E /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
-		0481A35C2E6DA18600FC845E /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk/usr/lib/libz.tbd; sourceTree = DEVELOPER_DIR; };
+		0481A35C2E6DA18600FC845E /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
 		048A4BE62E5CCCC300162C4A /* TransportConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportConfig.swift; sourceTree = "<group>"; };
 		048A4C272E5FCD6600162C4A /* GeohashBookmarksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeohashBookmarksStore.swift; sourceTree = "<group>"; };
 		048A4C2A2E5FCE0300162C4A /* GeohashBookmarksStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeohashBookmarksStoreTests.swift; sourceTree = "<group>"; };
@@ -343,6 +349,8 @@
 			children = (
 				0481A3432E6D869F00FC845E /* TorManager.swift */,
 				0481A3442E6D869F00FC845E /* TorURLSession.swift */,
+				0C0EFA102E6EAAAA00ABCDEF /* CTorHost.c */,
+				0C0EFA132E6EAABB00ABCDF1 /* TorNotifications.swift */,
 			);
 			path = Tor;
 			sourceTree = "<group>";
@@ -794,6 +802,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0C0EFA122E6EAAAA00ABCDF0 /* CTorHost.c in Sources */,
+				0C0EFA172E6EAABB00ABCDF5 /* TorNotifications.swift in Sources */,
 				048A4BE72E5CCCC300162C4A /* TransportConfig.swift in Sources */,
 				1234567890ABCDEFFEDCBA13 /* PeerDisplayNameResolver.swift in Sources */,
 				AA77BB12CC22DD33EE44FF56 /* VerificationService.swift in Sources */,
@@ -856,6 +866,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0C0EFA112E6EAAAA00ABCDEF /* CTorHost.c in Sources */,
+				0C0EFA162E6EAABB00ABCDF4 /* TorNotifications.swift in Sources */,
 				048A4BE82E5CCCC300162C4A /* TransportConfig.swift in Sources */,
 				1234567890ABCDEFFEDCBA14 /* PeerDisplayNameResolver.swift in Sources */,
 				AA77BB11CC22DD33EE44FF55 /* VerificationService.swift in Sources */,

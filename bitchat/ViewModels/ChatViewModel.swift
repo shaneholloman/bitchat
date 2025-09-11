@@ -362,6 +362,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     private var torStatusAnnounced = false
     private var torProgressCancellable: AnyCancellable?
     private var lastTorProgressAnnounced = -1
+    // Queue geohash-only system messages if user isn't on a location channel yet
+    private var pendingGeohashSystemMessages: [String] = []
+    // Track whether a Tor restart is pending so we only announce
+    // "tor restarted" after an actual restart, not the first launch.
+    private var torRestartPending: Bool = false
     
     // MARK: - Caches
     
@@ -754,6 +759,19 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             name: NSApplication.willTerminateNotification,
             object: nil
         )
+        // Tor lifecycle notifications: inform user when Tor restarts and when ready (macOS)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTorWillRestart),
+            name: .TorWillRestart,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTorDidBecomeReady),
+            name: .TorDidBecomeReady,
+            object: nil
+        )
         #else
         NotificationCenter.default.addObserver(
             self,
@@ -785,6 +803,19 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             name: UIApplication.willTerminateNotification,
             object: nil
         )
+        // Tor lifecycle notifications: inform user when Tor restarts and when ready
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTorWillRestart),
+            name: .TorWillRestart,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTorDidBecomeReady),
+            name: .TorDidBecomeReady,
+            object: nil
+        )
         #endif
     }
     
@@ -792,6 +823,24 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     
     deinit {
         // No need to force UserDefaults synchronization
+    }
+
+    // MARK: - Tor notifications
+    @objc private func handleTorWillRestart() {
+        Task { @MainActor in
+            self.torRestartPending = true
+            self.addPublicSystemMessage("tor restarting to recover connectivity…")
+        }
+    }
+
+    @objc private func handleTorDidBecomeReady() {
+        Task { @MainActor in
+            // Only announce "restarted" if we actually restarted this session
+            if self.torRestartPending {
+                self.addPublicSystemMessage("tor restarted. network routing restored.")
+                self.torRestartPending = false
+            }
+        }
     }
     
     // Resubscribe to the active geohash channel without clearing timeline
@@ -1469,6 +1518,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             if emptyGeo > 0 {
                 SecureLogger.log("RenderGuard: geohash \(ch.geohash) timeline has \(emptyGeo) empty messages after sanitize", category: SecureLogger.session, level: .debug)
             }
+        }
+        // If switching to a location channel, flush any pending geohash-only system messages
+        if case .location = channel, !pendingGeohashSystemMessages.isEmpty {
+            for m in pendingGeohashSystemMessages { addPublicSystemMessage(m) }
+            pendingGeohashSystemMessages.removeAll(keepingCapacity: false)
         }
         // Unsubscribe previous
         if let sub = geoSubscriptionID {
@@ -2630,8 +2684,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 self.markPrivateMessagesAsRead(from: peerID)
             }
         }
-        // Also resubscribe the current geohash channel if active
-        resubscribeCurrentGeohash()
+        // Subscriptions will be resent after connections come back up
     }
     
     @MainActor
@@ -4925,6 +4978,9 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     func addGeohashOnlySystemMessage(_ content: String) {
         if case .location = activeChannel {
             addPublicSystemMessage(content)
+        } else {
+            // Not on a location channel yet: queue to show when user switches
+            pendingGeohashSystemMessages.append(content)
         }
     }
     // Send a public message without adding a local user echo.
