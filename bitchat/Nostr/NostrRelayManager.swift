@@ -77,7 +77,6 @@ class NostrRelayManager: ObservableObject {
     
     /// Connect to all configured relays
     func connect() {
-        SecureLogger.log("🌐 Connecting to \(relays.count) Nostr relays (via Tor)", category: SecureLogger.session, level: .debug)
         // Ensure Tor is started early and wait for readiness off-main; then hop back to connect.
         Task.detached {
             let ready = await TorManager.shared.awaitReady()
@@ -86,6 +85,7 @@ class NostrRelayManager: ObservableObject {
                     SecureLogger.log("❌ Tor not ready; aborting relay connections (fail-closed)", category: SecureLogger.session, level: .error)
                     return
                 }
+                SecureLogger.log("🌐 Connecting to \(self.relays.count) Nostr relays (via Tor)", category: SecureLogger.session, level: .debug)
                 for relay in self.relays {
                     self.connectToRelay(relay.url)
                 }
