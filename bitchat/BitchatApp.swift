@@ -15,6 +15,8 @@ struct BitchatApp: App {
     #if os(iOS)
     @Environment(\.scenePhase) var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    // Skip the very first .active-triggered Tor restart on cold launch
+    @State private var didHandleInitialActive: Bool = false
     #elseif os(macOS)
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) var appDelegate
     #endif
@@ -66,8 +68,14 @@ struct BitchatApp: App {
                         // Restart services when becoming active
                         chatViewModel.meshService.startServices()
                         TorManager.shared.setAppForeground(true)
-                        // Ensure Tor is healthy; restart deterministically, then wait until ready
-                        TorManager.shared.ensureRunningOnForeground()
+                        // On initial cold launch, Tor was just started in onAppear.
+                        // Skip the deterministic restart the first time we become active.
+                        if didHandleInitialActive {
+                            // Ensure Tor is healthy; restart deterministically, then wait until ready
+                            TorManager.shared.ensureRunningOnForeground()
+                        } else {
+                            didHandleInitialActive = true
+                        }
                         Task.detached {
                             let _ = await TorManager.shared.awaitReady(timeout: 60)
                             await MainActor.run {

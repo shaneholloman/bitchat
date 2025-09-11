@@ -836,7 +836,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     @objc private func handleTorWillRestart() {
         Task { @MainActor in
             self.torRestartPending = true
-            self.addPublicSystemMessage("tor restarting to recover connectivity…")
+            // Post only in geohash channels (queue if not active)
+            self.addGeohashOnlySystemMessage("tor restarting to recover connectivity…")
         }
     }
 
@@ -844,7 +845,8 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
         Task { @MainActor in
             // Only announce "restarted" if we actually restarted this session
             if self.torRestartPending {
-                self.addPublicSystemMessage("tor restarted. network routing restored.")
+                // Post only in geohash channels (queue if not active)
+                self.addGeohashOnlySystemMessage("tor restarted. network routing restored.")
                 self.torRestartPending = false
             }
         }
