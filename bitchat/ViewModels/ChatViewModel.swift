@@ -897,7 +897,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                 if Date().timeIntervalSince(eventTime) < 15 { return }
             }
             if let nickTag = event.tags.first(where: { $0.first == "n" }), nickTag.count >= 2 {
-                let nick = nickTag[1]
+                let nick = nickTag[1].trimmingCharacters(in: .whitespacesAndNewlines)
                 self.geoNicknames[event.pubkey.lowercased()] = nick
             }
             // Store mapping for geohash sender IDs used in messages (ensures consistent colors)
@@ -1616,7 +1616,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
             }
             // Cache nickname from tag if present
             if let nickTag = event.tags.first(where: { $0.first == "n" }), nickTag.count >= 2 {
-                let nick = nickTag[1]
+                let nick = nickTag[1].trimmingCharacters(in: .whitespacesAndNewlines)
                 self.geoNicknames[event.pubkey.lowercased()] = nick
             }
             // If this pubkey is blocked, skip mapping, participants, and timeline
