@@ -244,6 +244,22 @@ class NostrRelayManager: ObservableObject {
             // Target specific relays if provided; else default. Filter permanently failed relays.
             let baseUrls = relayUrls ?? Self.defaultRelays
             let urls = baseUrls.filter { !isPermanentlyFailed($0) }
+            // If no connections exist yet (e.g., app launch), avoid initiating connections
+            // from subscribe. Just ensure relays are listed and queue subs to flush later.
+            if connections.isEmpty {
+                let existingSet = Set(relays.map { $0.url })
+                for url in urls where !existingSet.contains(url) {
+                    relays.append(Relay(url: url))
+                }
+                for url in urls {
+                    var map = self.pendingSubscriptions[url] ?? [:]
+                    map[id] = messageString
+                    self.pendingSubscriptions[url] = map
+                }
+                SecureLogger.log("📋 Queued subscription id=\(id) for \(urls.count) relay(s)",
+                                 category: SecureLogger.session, level: .debug)
+                return
+            }
             ensureConnections(to: urls)
             let targets: [(String, URLSessionWebSocketTask)] = urls.compactMap { url in
                 connections[url].map { (url, $0) }
