@@ -137,6 +137,9 @@ final class BLEService: NSObject {
     private var pendingDirectedRelays: [String: [String: (packet: BitchatPacket, enqueuedAt: Date)]] = [:]
     // Debounce for 'reconnected' logs
     private var lastReconnectLogAt: [String: Date] = [:]
+
+    // MARK: - Gossip Sync
+    private var gossipSyncManager: GossipSyncManager?
     
     // MARK: - Maintenance Timer
     
@@ -395,9 +398,15 @@ final class BLEService: NSObject {
         }
         timer.resume()
         maintenanceTimer = timer
-        
+
         // Publish initial empty state
         requestPeerDataPublish()
+
+        // Initialize gossip sync manager
+        let sync = GossipSyncManager(myPeerID: myPeerID)
+        sync.delegate = self
+        sync.start()
+        self.gossipSyncManager = sync
     }
     
     func setNickname(_ nickname: String) {
@@ -772,6 +781,8 @@ final class BLEService: NSObject {
                 self.messageDeduplicator.markProcessed(dedupID)
                 // Call synchronously since we're already on background queue
                 self.broadcastPacket(signedPacket)
+                // Track our own broadcast for sync
+                self.gossipSyncManager?.onPublicPacketSeen(signedPacket)
             }
         }
     }
@@ -1130,6 +1141,12 @@ final class BLEService: NSObject {
         }
     }
 
+    // Directed send helper (unicast to a specific peerID) without altering packet contents
+    private func sendPacketDirected(_ packet: BitchatPacket, to peerID: String) {
+        guard let data = packet.toBinaryData(padding: false) else { return }
+        sendOnAllLinks(packet: packet, data: data, pad: false, directedOnlyPeer: peerID)
+    }
+
     // MARK: - Directed store-and-forward
     private func spoolDirectedPacket(_ packet: BitchatPacket, recipientPeerID: String) {
         let msgID = makeMessageID(for: packet)
@@ -1380,6 +1397,9 @@ final class BLEService: NSObject {
         case .message:
             handleMessage(packet, from: senderID)
             
+        case .requestSync:
+            handleRequestSync(packet, from: senderID)
+            
         case .noiseHandshake:
             handleNoiseHandshake(packet, from: senderID)
             
@@ -1580,12 +1600,17 @@ final class BLEService: NSObject {
             // Only notify of connection for new or reconnected peers when it is a direct announce
             if (packet.ttl == self.messageTTL) && (isNewPeer || isReconnectedPeer) {
                 self.delegate?.didConnectToPeer(peerID)
+                // Schedule initial unicast sync to this peer
+                self.gossipSyncManager?.scheduleInitialSyncToPeer(peerID, delaySeconds: 5.0)
             }
             
             self.requestPeerDataPublish()
             self.delegate?.didUpdatePeerList(currentPeerIDs)
         }
         
+        // Track for sync (include our own and others' announces)
+        gossipSyncManager?.onPublicPacketSeen(packet)
+
         // Send announce back for bidirectional discovery (only once per peer)
         let announceBackID = "announce-back-\(peerID)"
         let shouldSendBack = !messageDeduplicator.contains(announceBackID)
@@ -1606,6 +1631,15 @@ final class BLEService: NSObject {
                 self?.sendAnnounce(forceSend: true)
             }
         }
+    }
+
+    // Handle REQUEST_SYNC: decode payload and respond with missing packets via sync manager
+    private func handleRequestSync(_ packet: BitchatPacket, from peerID: String) {
+        guard let req = RequestSyncPacket.decode(from: packet.payload) else {
+            SecureLogger.warning("⚠️ Malformed REQUEST_SYNC from \(peerID)", category: .session)
+            return
+        }
+        gossipSyncManager?.handleRequestSync(fromPeerID: peerID, request: req)
     }
     
     // Mention parsing moved to ChatViewModel
@@ -1645,6 +1679,11 @@ final class BLEService: NSObject {
                     }
                 }
             }
+        }
+
+        // Track broadcast messages (recipientID == nil indicates broadcast)
+        if packet.recipientID == nil && packet.type == MessageType.message.rawValue {
+            gossipSyncManager?.onPublicPacketSeen(packet)
         }
 
         guard accepted else {
@@ -1858,6 +1897,8 @@ final class BLEService: NSObject {
                 self?.broadcastPacket(signedPacket)
             }
         }
+        // Ensure our own announce is included in sync state
+        gossipSyncManager?.onPublicPacketSeen(signedPacket)
     }
     
     func sendDeliveryAck(for messageID: String, to peerID: String) {
@@ -2243,6 +2284,29 @@ final class BLEService: NSObject {
             threshold = max(threshold, TransportConfig.bleRSSIHighTimeoutThreshold)
         }
         dynamicRSSIThreshold = threshold
+    }
+}
+
+// MARK: - GossipSyncManager Delegate
+extension BLEService: GossipSyncManager.Delegate {
+    func sendPacket(_ packet: BitchatPacket) {
+        if DispatchQueue.getSpecific(key: messageQueueKey) != nil {
+            broadcastPacket(packet)
+        } else {
+            messageQueue.async { [weak self] in self?.broadcastPacket(packet) }
+        }
+    }
+
+    func sendPacket(to peerID: String, packet: BitchatPacket) {
+        if DispatchQueue.getSpecific(key: messageQueueKey) != nil {
+            sendPacketDirected(packet, to: peerID)
+        } else {
+            messageQueue.async { [weak self] in self?.sendPacketDirected(packet, to: peerID) }
+        }
+    }
+
+    func signPacketForBroadcast(_ packet: BitchatPacket) -> BitchatPacket {
+        return noiseService.signPacket(packet) ?? packet
     }
 }
 
