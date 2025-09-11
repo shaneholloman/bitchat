@@ -61,6 +61,10 @@ struct BitchatApp: App {
                         // Optionally nudge Tor to dormant to save power
                         TorManager.shared.setAppForeground(false)
                         TorManager.shared.goDormantOnBackground()
+                        // Stop geohash sampling while backgrounded
+                        Task { @MainActor in
+                            chatViewModel.endGeohashSampling()
+                        }
                         // Proactively disconnect Nostr to avoid spurious socket errors while Tor is down
                         NostrRelayManager.shared.disconnect()
                         break

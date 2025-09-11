@@ -614,30 +614,34 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             
             self.cancellables.insert(cancellable)
 
-            // Resubscribe geohash on relay reconnect
-            if let relayMgr = self.nostrRelayManager {
-                relayMgr.$isConnected
-                    .receive(on: DispatchQueue.main)
-                    .sink { [weak self] connected in
-                        guard let self = self else { return }
-                        if connected {
-                            Task { @MainActor in
-                                // Set up DM handler once on first connect
-                                if !self.nostrHandlersSetup {
-                                    self.setupNostrMessageHandling()
-                                    self.nostrHandlersSetup = true
-                                }
-                                self.resubscribeCurrentGeohash()
-                                // Re-init sampling for regional + bookmarked geohashes after reconnect
-                                let regional = LocationChannelManager.shared.availableChannels.map { $0.geohash }
-                                let bookmarks = GeohashBookmarksStore.shared.bookmarks
-                                let union = Array(Set(regional).union(bookmarks))
+        // Resubscribe geohash on relay reconnect
+        if let relayMgr = self.nostrRelayManager {
+            relayMgr.$isConnected
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] connected in
+                    guard let self = self else { return }
+                    if connected {
+                        Task { @MainActor in
+                            // Set up DM handler once on first connect
+                            if !self.nostrHandlersSetup {
+                                self.setupNostrMessageHandling()
+                                self.nostrHandlersSetup = true
+                            }
+                            self.resubscribeCurrentGeohash()
+                            // Re-init sampling for regional + bookmarked geohashes after reconnect
+                            let regional = LocationChannelManager.shared.availableChannels.map { $0.geohash }
+                            let bookmarks = GeohashBookmarksStore.shared.bookmarks
+                            let union = Array(Set(regional).union(bookmarks))
+                            if TorManager.shared.isForeground() {
                                 self.beginGeohashSampling(for: union)
+                            } else {
+                                self.endGeohashSampling()
                             }
                         }
                     }
-                    .store(in: &self.cancellables)
-            }
+                }
+                .store(in: &self.cancellables)
+        }
         }
 
         // Set up Noise encryption callbacks
@@ -658,7 +662,7 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             self.switchLocationChannel(to: LocationChannelManager.shared.selectedChannel)
         }
 
-        // Background: keep sampling nearby geohashes + bookmarks for notifications even when sheet is closed
+        // Foreground-only: sample nearby geohashes + bookmarks (disabled in background)
         LocationChannelManager.shared.$availableChannels
             .receive(on: DispatchQueue.main)
             .sink { [weak self] channels in
@@ -667,7 +671,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 let bookmarks = GeohashBookmarksStore.shared.bookmarks
                 let union = Array(Set(regional).union(bookmarks))
                 Task { @MainActor in
-                    self.beginGeohashSampling(for: union)
+                    if TorManager.shared.isForeground() {
+                        self.beginGeohashSampling(for: union)
+                    } else {
+                        self.endGeohashSampling()
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -680,17 +688,21 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 let regional = LocationChannelManager.shared.availableChannels.map { $0.geohash }
                 let union = Array(Set(regional).union(bookmarks))
                 Task { @MainActor in
-                    self.beginGeohashSampling(for: union)
+                    if TorManager.shared.isForeground() {
+                        self.beginGeohashSampling(for: union)
+                    } else {
+                        self.endGeohashSampling()
+                    }
                 }
             }
             .store(in: &cancellables)
 
-        // Kick off initial sampling if we have regional channels or bookmarks
+        // Kick off initial sampling if we have regional channels or bookmarks (foreground only)
         do {
             let regional = LocationChannelManager.shared.availableChannels.map { $0.geohash }
             let bookmarks = GeohashBookmarksStore.shared.bookmarks
             let union = Array(Set(regional).union(bookmarks))
-            if !union.isEmpty {
+            if !union.isEmpty && TorManager.shared.isForeground() {
                 Task { @MainActor in self.beginGeohashSampling(for: union) }
             }
         }
@@ -1931,6 +1943,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
     /// Begin sampling multiple geohashes (used by channel sheet) without changing active channel.
     @MainActor
     func beginGeohashSampling(for geohashes: [String]) {
+        // Disable sampling when app is backgrounded (Tor is stopped there)
+        if !TorManager.shared.isForeground() {
+            endGeohashSampling()
+            return
+        }
         // Determine which to add and which to remove
         let desired = Set(geohashes)
         let current = Set(geoSamplingSubs.values)
@@ -1976,15 +1993,13 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
                 // Avoid notifications for old sampled events when launching or (re)subscribing
                 let eventTime = Date(timeIntervalSince1970: TimeInterval(event.created_at))
                 if Date().timeIntervalSince(eventTime) > 30 { return }
-                // Foreground policy: allow if it's a different geohash than the one currently open
+                // Foreground-only notifications: app must be active, and not already viewing this geohash
                 #if os(iOS)
-                if UIApplication.shared.applicationState == .active {
-                    if case .location(let ch) = self.activeChannel, ch.geohash == gh { return }
-                }
+                guard UIApplication.shared.applicationState == .active else { return }
+                if case .location(let ch) = self.activeChannel, ch.geohash == gh { return }
                 #elseif os(macOS)
-                if NSApplication.shared.isActive {
-                    if case .location(let ch) = self.activeChannel, ch.geohash == gh { return }
-                }
+                guard NSApplication.shared.isActive else { return }
+                if case .location(let ch) = self.activeChannel, ch.geohash == gh { return }
                 #endif
                 // Cooldown per geohash
                 let now = Date()
