@@ -928,7 +928,9 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
             }
             let senderName = self.displayNameForNostrPubkey(event.pubkey)
             let content = event.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            let timestamp = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+            // Clamp future timestamps to now to avoid future-dated messages skewing order
+            let rawTs = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+            let timestamp = min(rawTs, Date())
             let mentions = self.parseMentions(from: content)
             let msg = BitchatMessage(
                 id: event.id,
@@ -1636,7 +1638,9 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return
             }
-            let timestamp = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+            // Clamp future timestamps
+            let rawTs = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+            let timestamp = min(rawTs, Date())
             let mentions = self.parseMentions(from: content)
             let msg = BitchatMessage(
                 id: event.id,
@@ -2000,7 +2004,9 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                     let senderSuffix = String(event.pubkey.suffix(4))
                     let nick = self.geoNicknames[event.pubkey.lowercased()]
                     let senderName = (nick?.isEmpty == false ? nick! : "anon") + "#" + senderSuffix
-                    let ts = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+                    // Clamp future timestamps
+                    let rawTs = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+                    let ts = min(rawTs, Date())
                     let mentions = self.parseMentions(from: content)
                     let msg = BitchatMessage(
                         id: event.id,
@@ -5978,10 +5984,20 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         isBatchingPublic = true
         // Rough chronological order: sort the batch by timestamp before inserting
         added.sort { $0.timestamp < $1.timestamp }
-        // Insert late arrivals into approximate position; append recent ones
+        // Channel-aware insertion policy: geohash uses strict ordering; mesh allows small out-of-order appends
+        let threshold: TimeInterval = {
+            switch activeChannel {
+            case .location: return TransportConfig.uiLateInsertThresholdGeo
+            case .mesh: return TransportConfig.uiLateInsertThreshold
+            }
+        }()
         let lastTs = messages.last?.timestamp ?? .distantPast
         for m in added {
-            if m.timestamp < lastTs.addingTimeInterval(-lateInsertThreshold) {
+            if m.timestamp < lastTs.addingTimeInterval(-threshold) {
+                let idx = insertionIndexByTimestamp(m.timestamp)
+                if idx >= messages.count { messages.append(m) } else { messages.insert(m, at: idx) }
+            } else if threshold == 0 {
+                // Strict ordering for geohash: always insert by timestamp
                 let idx = insertionIndexByTimestamp(m.timestamp)
                 if idx >= messages.count { messages.append(m) } else { messages.insert(m, at: idx) }
             } else {
