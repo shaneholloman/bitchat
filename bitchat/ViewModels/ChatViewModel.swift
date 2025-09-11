@@ -554,17 +554,19 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             addGeohashOnlySystemMessage("development build: tor bypass enabled.")
         }
 
-        // Initialize Nostr services
+        // Initialize Nostr services only after Tor is fully ready, to avoid
+        // interleaving setup logs during Tor startup.
         Task { @MainActor in
+            // Wait for Tor readiness before Nostr init
+            let ready = await TorManager.shared.awaitReady(timeout: 60)
+            guard ready else {
+                SecureLogger.log("Nostr init skipped: Tor not ready", category: SecureLogger.session, level: .error)
+                return
+            }
             nostrRelayManager = NostrRelayManager.shared
             SecureLogger.log("Initializing Nostr relay connections", category: SecureLogger.session, level: .debug)
             nostrRelayManager?.connect()
-            
-            // Small delay to ensure read receipts are fully loaded
-            // This prevents race conditions where messages arrive before initialization completes
-            try? await Task.sleep(nanoseconds: TransportConfig.uiStartupShortSleepNs) // 0.2 seconds
-            
-            // Set up Nostr message handling directly
+            // Set up Nostr message handling directly once Tor is ready
             setupNostrMessageHandling()
 
             // Attempt to flush any queued outbox after Nostr comes online
@@ -1653,8 +1655,11 @@ class ChatViewModel: ObservableObject, BitchatDelegate {
             let dmSub = "geo-dm-\(ch.geohash)"
             geoDmSubscriptionID = dmSub
             // pared back logging: subscribe debug only
-            SecureLogger.log("GeoDM: subscribing DMs pub=\(id.publicKeyHex.prefix(8))… sub=\(dmSub)",
-                            category: SecureLogger.session, level: .debug)
+            // Log GeoDM subscribe only when Tor is ready to avoid early noise
+            if TorManager.shared.isReady {
+                SecureLogger.log("GeoDM: subscribing DMs pub=\(id.publicKeyHex.prefix(8))… sub=\(dmSub)",
+                                category: SecureLogger.session, level: .debug)
+            }
             let dmFilter = NostrFilter.giftWrapsFor(pubkey: id.publicKeyHex, since: Date().addingTimeInterval(-TransportConfig.nostrDMSubscribeLookbackSeconds))
             NostrRelayManager.shared.subscribe(filter: dmFilter, id: dmSub) { [weak self] giftWrap in
                 guard let self = self else { return }
