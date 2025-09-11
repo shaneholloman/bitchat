@@ -20,7 +20,7 @@ struct RequestSyncPacket {
         }
         // mBytes
         var mb = UInt16(mBytes)
-        let mbData = withUnsafeBytes(of: &mb.bigEndian) { Data($0) }
+        let mbData = withUnsafeBytes(of: mb.bigEndian) { Data($0) }
         putTLV(0x01, mbData)
         // k
         putTLV(0x02, Data([UInt8(k & 0xFF)]))
