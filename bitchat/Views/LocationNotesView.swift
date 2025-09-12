@@ -72,9 +72,6 @@ struct LocationNotesView: View {
                             Text(note.displayName)
                                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                                 .foregroundColor(secondaryTextColor)
-                            Text(note.createdAt, style: .relative)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(secondaryTextColor.opacity(0.8))
                         }
                         Text(note.content)
                             .font(.system(size: 14, design: .monospaced))
