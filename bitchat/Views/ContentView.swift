@@ -1149,13 +1149,12 @@ struct ContentView: View {
                 // Notes icon (mesh only), left of channel badge
                 if case .mesh = locationManager.selectedChannel {
                     Button(action: {
-                        if let block = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
-                            notesGeohash = block
-                            showLocationNotes = true
-                        } else {
-                            notesGeohash = nil
-                            showLocationNotes = true
-                        }
+                        // Kick a one-shot refresh and show the sheet immediately.
+                        LocationChannelManager.shared.enableLocationChannels()
+                        LocationChannelManager.shared.refreshChannels()
+                        // If we already have a block geohash, pass it; otherwise wait in the sheet.
+                        notesGeohash = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash
+                        showLocationNotes = true
                     }) {
                         Image(systemName: "note.text")
                             .font(.system(size: 12))
@@ -1222,25 +1221,8 @@ struct ContentView: View {
                 .onDisappear { viewModel.isLocationChannelsSheetPresented = false }
         }
         .sheet(isPresented: $showLocationNotes) {
-            if let gh = notesGeohash {
-                LocationNotesView(geohash: gh)
-                    .environmentObject(viewModel)
-            } else {
-                VStack(spacing: 12) {
-                    Text("location unavailable")
-                        .font(.system(size: 16, weight: .bold, design: .monospaced))
-                    Text("enable location to view notes for your street-level area")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(secondaryTextColor)
-                    Button("enable location") {
-                        LocationChannelManager.shared.enableLocationChannels()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .padding(20)
-                .background(backgroundColor)
-                .foregroundColor(textColor)
-            }
+            LocationNotesSheet(notesGeohash: $notesGeohash)
+                .environmentObject(viewModel)
         }
         .alert("heads up", isPresented: $viewModel.showScreenshotPrivacyWarning) {
             Button("ok", role: .cancel) {}

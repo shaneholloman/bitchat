@@ -125,7 +125,7 @@ struct LocationNotesView: View {
 }
 
 // MARK: - Matrix Rain Loader
-private struct MatrixRainView: View {
+struct MatrixRainView: View {
     @Environment(\.colorScheme) var colorScheme
     private var fg: Color { colorScheme == .dark ? Color.green : Color(red: 0, green: 0.5, blue: 0) }
     private let charset = Array("01abcdefghijklmnopqrstuvwxyzｱｲｳｴｵｶｷｸｹｺﾊﾋﾌﾍﾎ0123456789")
@@ -164,7 +164,7 @@ private struct MatrixRainView: View {
     }
 }
 
-private struct RainColumn: View {
+struct RainColumn: View {
     let charset: [Character]
     let columnWidth: CGFloat
     let height: CGFloat
