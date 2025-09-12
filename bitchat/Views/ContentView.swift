@@ -1221,8 +1221,52 @@ struct ContentView: View {
                 .onDisappear { viewModel.isLocationChannelsSheetPresented = false }
         }
         .sheet(isPresented: $showLocationNotes) {
-            LocationNotesSheet(notesGeohash: $notesGeohash)
-                .environmentObject(viewModel)
+            Group {
+                if let gh = notesGeohash ?? LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
+                    LocationNotesView(geohash: gh)
+                        .environmentObject(viewModel)
+                } else {
+                    ZStack {
+                        VStack(spacing: 0) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("notes")
+                                        .font(.system(size: 16, weight: .bold, design: .monospaced))
+                                    Text("acquiring location…")
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundColor(secondaryTextColor)
+                                }
+                                Spacer()
+                                Button(action: { showLocationNotes = false }) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                        .foregroundColor(textColor)
+                                        .frame(width: 32, height: 32)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Close")
+                            }
+                            .frame(height: 44)
+                            .padding(.horizontal, 12)
+                            .background(backgroundColor.opacity(0.95))
+                            Spacer()
+                        }
+                        MatrixRainView()
+                            .transition(.opacity)
+                    }
+                    .background(backgroundColor)
+                    .foregroundColor(textColor)
+                    .onAppear {
+                        LocationChannelManager.shared.enableLocationChannels()
+                        LocationChannelManager.shared.refreshChannels()
+                    }
+                    .onChange(of: locationManager.availableChannels) { channels in
+                        if notesGeohash == nil, let block = channels.first(where: { $0.level == .block }) {
+                            notesGeohash = block.geohash
+                        }
+                    }
+                }
+            }
         }
         .alert("heads up", isPresented: $viewModel.showScreenshotPrivacyWarning) {
             Button("ok", role: .cancel) {}
