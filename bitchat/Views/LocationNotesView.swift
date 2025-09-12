@@ -73,6 +73,7 @@ struct LocationNotesView: View {
                                 .foregroundColor(secondaryTextColor.opacity(0.8))
                         }
                         Text(note.content)
+                            .font(.system(size: 14, design: .monospaced))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.horizontal, 12)
