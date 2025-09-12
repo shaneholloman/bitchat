@@ -26,18 +26,12 @@ struct LocationNotesView: View {
     }
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                header
-                Divider()
-                list
-                Divider()
-                input
-            }
-            if manager.isLoading {
-                MatrixRainView()
-                    .transition(.opacity)
-            }
+        VStack(spacing: 0) {
+            header
+            Divider()
+            list
+            Divider()
+            input
         }
         .background(backgroundColor)
         .foregroundColor(textColor)
@@ -121,108 +115,5 @@ struct LocationNotesView: View {
         guard !content.isEmpty else { return }
         manager.send(content: content, nickname: viewModel.nickname)
         draft = ""
-    }
-}
-
-// MARK: - Matrix Rain Loader
-struct MatrixRainView: View {
-    @Environment(\.colorScheme) var colorScheme
-    private var fg: Color { colorScheme == .dark ? Color.green : Color(red: 0, green: 0.5, blue: 0) }
-    private let charset = Array("01abcdefghijklmnopqrstuvwxyzｱｲｳｴｵｶｷｸｹｺﾊﾋﾌﾍﾎ0123456789")
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = max(geo.size.width, 1)
-            let h = max(geo.size.height, 1)
-            let colWidth: CGFloat = 14
-            let cols = max(Int(w / colWidth), 6)
-            ZStack {
-                ForEach(0..<cols, id: \.self) { i in
-                    RainColumn(charset: charset,
-                               columnWidth: colWidth,
-                               height: h,
-                               speed: Double.random(in: 2.8...4.8),
-                               delay: Double.random(in: 0...1.2),
-                               color: fg)
-                    .frame(width: colWidth)
-                    .position(x: CGFloat(i) * colWidth + colWidth/2, y: h/2)
-                }
-            }
-            .background(Color.black.opacity(colorScheme == .dark ? 0.75 : 0.65))
-            .overlay(
-                VStack(spacing: 6) {
-                    Text("loading notes…")
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundColor(fg)
-                        .padding(.top, 12)
-                    Spacer()
-                }
-            )
-        }
-        .ignoresSafeArea(edges: .bottom)
-        .allowsHitTesting(false)
-    }
-}
-
-struct RainColumn: View {
-    let charset: [Character]
-    let columnWidth: CGFloat
-    let height: CGFloat
-    let speed: Double
-    let delay: Double
-    let color: Color
-    @State private var y: CGFloat = 0
-    @State private var glyphs: [String] = []
-    @State private var timer: Timer?
-
-    var body: some View {
-        let font = Font.system(size: 12, weight: .regular, design: .monospaced)
-        VStack(spacing: 0) {
-            ForEach(Array(glyphs.enumerated()), id: \.offset) { idx, ch in
-                Text(ch)
-                    .font(font)
-                    .foregroundColor(color.opacity(opacity(for: idx)))
-                    .frame(width: columnWidth, alignment: .center)
-            }
-        }
-        .offset(y: y)
-        .onAppear {
-            let count = max(Int(height / 14) + 12, 24)
-            glyphs = randomGlyphs(count)
-            startGlyphTimer()
-            y = -height
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                withAnimation(.linear(duration: speed).repeatForever(autoreverses: false)) {
-                    y = height * 2
-                }
-            }
-        }
-        .onDisappear { stopGlyphTimer() }
-    }
-
-    private func opacity(for idx: Int) -> Double {
-        let p = Double(idx) / Double(max(glyphs.count, 1))
-        return 0.15 + (1.0 - p) * 0.85
-    }
-
-    private func randomGlyphs(_ n: Int) -> [String] {
-        (0..<n).map { _ in String(charset.randomElement() ?? "0") }
-    }
-
-    private func startGlyphTimer() {
-        stopGlyphTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.20, repeats: true) { _ in
-            if glyphs.isEmpty { return }
-            let changes = Int.random(in: 1...3)
-            for _ in 0..<changes {
-                let idx = Int.random(in: 0..<glyphs.count)
-                glyphs[idx] = String(charset.randomElement() ?? "1")
-            }
-        }
-    }
-
-    private func stopGlyphTimer() {
-        timer?.invalidate()
-        timer = nil
     }
 }

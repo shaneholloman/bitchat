@@ -1251,8 +1251,9 @@ struct ContentView: View {
                             .background(backgroundColor.opacity(0.95))
                             Spacer()
                         }
-                        MatrixRainView()
-                            .transition(.opacity)
+                        // Simple system spinner while waiting for geohash
+                        ProgressView()
+                            .progressViewStyle(.circular)
                     }
                     .background(backgroundColor)
                     .foregroundColor(textColor)
