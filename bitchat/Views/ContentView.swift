@@ -49,6 +49,7 @@ struct ContentView: View {
     @State private var showLocationChannelsSheet = false
     @State private var showVerifySheet = false
     @State private var expandedMessageIDs: Set<String> = []
+    @State private var showLocationNotes = false
     // Window sizes for rendering (infinite scroll up)
     @State private var windowCountPublic: Int = 300
     @State private var windowCountPrivate: [String: Int] = [:]
@@ -1144,6 +1145,16 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Toggle bookmark for #\(ch.geohash)")
                 }
+                // Notes icon (mesh only), left of channel badge
+                if case .mesh = locationManager.selectedChannel {
+                    Button(action: { showLocationNotes = true }) {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Location notes for this place")
+                }
                 // Location channels button '#'
                 Button(action: { showLocationChannelsSheet = true }) {
                     let badgeText: String = {
@@ -1200,6 +1211,28 @@ struct ContentView: View {
             LocationChannelsSheet(isPresented: $showLocationChannelsSheet)
                 .onAppear { viewModel.isLocationChannelsSheetPresented = true }
                 .onDisappear { viewModel.isLocationChannelsSheetPresented = false }
+        }
+        .sheet(isPresented: $showLocationNotes) {
+            // Determine current block-level geohash for this place
+            if let block = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
+                LocationNotesView(geohash: block)
+                    .environmentObject(viewModel)
+            } else {
+                VStack(spacing: 12) {
+                    Text("location unavailable")
+                        .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    Text("enable location to view notes for your street-level area")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(secondaryTextColor)
+                    Button("enable location") {
+                        LocationChannelManager.shared.enableLocationChannels()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(20)
+                .background(backgroundColor)
+                .foregroundColor(textColor)
+            }
         }
         .alert("heads up", isPresented: $viewModel.showScreenshotPrivacyWarning) {
             Button("ok", role: .cancel) {}

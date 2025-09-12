@@ -755,6 +755,16 @@ struct NostrFilter: Encodable {
         filter.limit = limit
         return filter
     }
+
+    // For location notes: persistent text notes (kind 1) tagged with geohash
+    static func geohashNotes(_ geohash: String, since: Date? = nil, limit: Int = 200) -> NostrFilter {
+        var filter = NostrFilter()
+        filter.kinds = [1]
+        filter.since = since?.timeIntervalSince1970.toInt()
+        filter.tagFilters = ["g": [geohash]]
+        filter.limit = limit
+        return filter
+    }
 }
 
 // Dynamic coding key for tag filters

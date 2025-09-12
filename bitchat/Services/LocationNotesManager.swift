@@ -1,0 +1,133 @@
+import Foundation
+
+/// Persistent location notes (Nostr kind 1) scoped to a street-level geohash (precision 7).
+/// Subscribes to and publishes notes for a given geohash and provides a send API.
+@MainActor
+final class LocationNotesManager: ObservableObject {
+    struct Note: Identifiable, Equatable {
+        let id: String
+        let pubkey: String
+        let content: String
+        let createdAt: Date
+        let nickname: String?
+
+        var displayName: String {
+            let suffix = String(pubkey.suffix(4))
+            if let nick = nickname, !nick.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "\(nick)#\(suffix)"
+            }
+            return "anon#\(suffix)"
+        }
+    }
+
+    @Published private(set) var notes: [Note] = [] // reverse-chron sorted
+    @Published private(set) var isLoading: Bool = true
+    @Published private(set) var geohash: String
+    private var subscriptionID: String?
+    private var loadingWorkItem: DispatchWorkItem?
+    private var loadingStartedAt: Date?
+    private var loadingMinDuration: TimeInterval = 0
+
+    init(geohash: String) {
+        self.geohash = geohash.lowercased()
+        subscribe()
+    }
+
+    func setGeohash(_ newGeohash: String) {
+        let norm = newGeohash.lowercased()
+        guard norm != geohash else { return }
+        if let sub = subscriptionID {
+            NostrRelayManager.shared.unsubscribe(id: sub)
+        }
+        geohash = norm
+        notes.removeAll()
+        subscribe()
+    }
+
+    private func subscribe() {
+        // Begin loading: always display Matrix for a randomized 1–3 seconds
+        isLoading = true
+        loadingStartedAt = Date()
+        loadingMinDuration = Double.random(in: 1.0...3.0)
+        loadingWorkItem?.cancel()
+        let subID = "locnotes-\(geohash)-\(UUID().uuidString.prefix(8))"
+        subscriptionID = subID
+        let lookback = Date().addingTimeInterval(-TransportConfig.nostrGeohashInitialLookbackSeconds)
+        let filter = NostrFilter.geohashNotes(geohash, since: lookback, limit: 200)
+        let relays = GeoRelayDirectory.shared.closestRelays(toGeohash: geohash, count: TransportConfig.nostrGeoRelayCount)
+        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relays) { [weak self] event in
+            guard let self = self else { return }
+            guard event.kind == NostrProtocol.EventKind.textNote.rawValue else { return }
+            // Ensure matching tag
+            guard event.tags.contains(where: { $0.count >= 2 && $0[0].lowercased() == "g" && $0[1].lowercased() == self.geohash }) else { return }
+            if self.notes.contains(where: { $0.id == event.id }) { return }
+            let nick = event.tags.first(where: { $0.first?.lowercased() == "n" && $0.count >= 2 })?.dropFirst().first
+            let ts = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+            let note = Note(id: event.id, pubkey: event.pubkey, content: event.content, createdAt: ts, nickname: nick)
+            self.notes.append(note)
+            self.notes.sort { $0.createdAt > $1.createdAt }
+            // Respect minimum loader time
+            if self.isLoading {
+                let elapsed = Date().timeIntervalSince(self.loadingStartedAt ?? Date())
+                if elapsed >= self.loadingMinDuration {
+                    self.isLoading = false
+                } else {
+                    self.loadingWorkItem?.cancel()
+                    let remaining = self.loadingMinDuration - elapsed
+                    let wi = DispatchWorkItem { [weak self] in self?.isLoading = false }
+                    self.loadingWorkItem = wi
+                    DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: wi)
+                }
+            }
+        }
+        // Ensure we hide after the minimum loader duration even if no events arrive
+        let wi = DispatchWorkItem { [weak self] in self?.isLoading = false }
+        loadingWorkItem = wi
+        DispatchQueue.main.asyncAfter(deadline: .now() + loadingMinDuration, execute: wi)
+    }
+
+    /// Send a location note for the current geohash using the per-geohash identity.
+    func send(content: String, nickname: String) {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            let id = try NostrIdentityBridge.deriveIdentity(forGeohash: geohash)
+            let event = try NostrProtocol.createGeohashTextNote(
+                content: trimmed,
+                geohash: geohash,
+                senderIdentity: id,
+                nickname: nickname,
+                teleported: LocationChannelManager.shared.teleported
+            )
+            let relays = GeoRelayDirectory.shared.closestRelays(toGeohash: geohash, count: TransportConfig.nostrGeoRelayCount)
+            NostrRelayManager.shared.sendEvent(event, to: relays)
+            // Optimistic local-echo
+            let echo = Note(id: event.id, pubkey: id.publicKeyHex, content: trimmed, createdAt: Date(), nickname: nickname)
+            self.notes.insert(echo, at: 0)
+            if self.isLoading {
+                let elapsed = Date().timeIntervalSince(self.loadingStartedAt ?? Date())
+                if elapsed >= self.loadingMinDuration {
+                    self.isLoading = false
+                } else {
+                    self.loadingWorkItem?.cancel()
+                    let remaining = self.loadingMinDuration - elapsed
+                    let wi = DispatchWorkItem { [weak self] in self?.isLoading = false }
+                    self.loadingWorkItem = wi
+                    DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: wi)
+                }
+            }
+        } catch {
+            SecureLogger.error("LocationNotesManager: failed to send note: \(error)", category: .session)
+        }
+    }
+
+    /// Explicitly cancel subscription and release resources.
+    func cancel() {
+        if let sub = subscriptionID {
+            NostrRelayManager.shared.unsubscribe(id: sub)
+            subscriptionID = nil
+        }
+        loadingWorkItem?.cancel()
+        loadingWorkItem = nil
+    }
+}
