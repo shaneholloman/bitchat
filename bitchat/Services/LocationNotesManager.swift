@@ -45,6 +45,8 @@ final class LocationNotesManager: ObservableObject {
     }
 
     private func subscribe() {
+        // Avoid double subscription for the same geohash while active
+        if subscriptionID != nil { return }
         // Begin loading: always display Matrix for a randomized 1–3 seconds
         isLoading = true
         loadingStartedAt = Date()

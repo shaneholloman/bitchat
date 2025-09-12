@@ -2,15 +2,16 @@ import SwiftUI
 
 struct LocationNotesView: View {
     @EnvironmentObject var viewModel: ChatViewModel
-    @ObservedObject var manager: LocationNotesManager
+    @StateObject private var manager: LocationNotesManager
     let geohash: String
 
     @Environment(\.colorScheme) var colorScheme
     @State private var draft: String = ""
 
     init(geohash: String) {
-        self.geohash = geohash.lowercased()
-        self.manager = LocationNotesManager(geohash: self.geohash)
+        let gh = geohash.lowercased()
+        self.geohash = gh
+        _manager = StateObject(wrappedValue: LocationNotesManager(geohash: gh))
     }
 
     private var backgroundColor: Color {

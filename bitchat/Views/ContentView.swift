@@ -50,6 +50,8 @@ struct ContentView: View {
     @State private var showVerifySheet = false
     @State private var expandedMessageIDs: Set<String> = []
     @State private var showLocationNotes = false
+    @State private var notesGeohash: String? = nil
+    @State private var showLocationNotes = false
     // Window sizes for rendering (infinite scroll up)
     @State private var windowCountPublic: Int = 300
     @State private var windowCountPrivate: [String: Int] = [:]
@@ -1147,7 +1149,15 @@ struct ContentView: View {
                 }
                 // Notes icon (mesh only), left of channel badge
                 if case .mesh = locationManager.selectedChannel {
-                    Button(action: { showLocationNotes = true }) {
+                    Button(action: {
+                        if let block = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
+                            notesGeohash = block
+                            showLocationNotes = true
+                        } else {
+                            notesGeohash = nil
+                            showLocationNotes = true
+                        }
+                    }) {
                         Image(systemName: "note.text")
                             .font(.system(size: 12))
                             .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
@@ -1213,9 +1223,8 @@ struct ContentView: View {
                 .onDisappear { viewModel.isLocationChannelsSheetPresented = false }
         }
         .sheet(isPresented: $showLocationNotes) {
-            // Determine current block-level geohash for this place
-            if let block = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
-                LocationNotesView(geohash: block)
+            if let gh = notesGeohash {
+                LocationNotesView(geohash: gh)
                     .environmentObject(viewModel)
             } else {
                 VStack(spacing: 12) {
