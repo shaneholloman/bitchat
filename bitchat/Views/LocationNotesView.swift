@@ -6,6 +6,7 @@ struct LocationNotesView: View {
     let geohash: String
 
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) private var dismiss
     @State private var draft: String = ""
 
     init(geohash: String) {
@@ -53,6 +54,15 @@ struct LocationNotesView: View {
                     .foregroundColor(secondaryTextColor)
             }
             Spacer()
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundColor(textColor)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
         }
         .frame(height: 44)
         .padding(.horizontal, 12)
