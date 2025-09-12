@@ -38,6 +38,7 @@ final class LocationNotesManager: ObservableObject {
         guard norm != geohash else { return }
         if let sub = subscriptionID {
             NostrRelayManager.shared.unsubscribe(id: sub)
+            subscriptionID = nil
         }
         geohash = norm
         notes.removeAll()
@@ -45,8 +46,6 @@ final class LocationNotesManager: ObservableObject {
     }
 
     private func subscribe() {
-        // Avoid double subscription for the same geohash while active
-        if subscriptionID != nil { return }
         // Begin loading: always display Matrix for a randomized 1–3 seconds
         isLoading = true
         loadingStartedAt = Date()
@@ -54,8 +53,8 @@ final class LocationNotesManager: ObservableObject {
         loadingWorkItem?.cancel()
         let subID = "locnotes-\(geohash)-\(UUID().uuidString.prefix(8))"
         subscriptionID = subID
-        let lookback = Date().addingTimeInterval(-TransportConfig.nostrGeohashInitialLookbackSeconds)
-        let filter = NostrFilter.geohashNotes(geohash, since: lookback, limit: 200)
+        // For persistent notes, allow relays to return recent history without an aggressive time cutoff
+        let filter = NostrFilter.geohashNotes(geohash, since: nil, limit: 200)
         let relays = GeoRelayDirectory.shared.closestRelays(toGeohash: geohash, count: TransportConfig.nostrGeoRelayCount)
         NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relays) { [weak self] event in
             guard let self = self else { return }
