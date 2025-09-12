@@ -25,6 +25,7 @@ struct ContentView: View {
     @EnvironmentObject var viewModel: ChatViewModel
     @ObservedObject private var locationManager = LocationChannelManager.shared
     @ObservedObject private var bookmarks = GeohashBookmarksStore.shared
+    @ObservedObject private var notesCounter = LocationNotesCounter.shared
     @State private var messageText = ""
     @State private var textFieldSelection: NSRange? = nil
     @FocusState private var isTextFieldFocused: Bool
@@ -1156,9 +1157,16 @@ struct ContentView: View {
                         notesGeohash = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash
                         showLocationNotes = true
                     }) {
-                        Image(systemName: "note.text")
-                            .font(.system(size: 12))
-                            .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
+                        HStack(spacing: 4) {
+                            Image(systemName: "note.text")
+                                .font(.system(size: 12))
+                                .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
+                            if let c = notesCounter.count {
+                                Text("\(c)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
+                            }
+                        }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Location notes for this place")
@@ -1269,6 +1277,9 @@ struct ContentView: View {
                 }
             }
         }
+        .onAppear { updateNotesCounterSubscription() }
+        .onChange(of: locationManager.selectedChannel) { _ in updateNotesCounterSubscription() }
+        .onChange(of: locationManager.availableChannels) { _ in updateNotesCounterSubscription() }
         .alert("heads up", isPresented: $viewModel.showScreenshotPrivacyWarning) {
             Button("ok", role: .cancel) {}
         } message: {
@@ -1465,6 +1476,22 @@ struct ContentView: View {
                 .background(backgroundColor.opacity(0.95))
     }
     
+}
+
+// MARK: - Notes Counter Subscription Helper
+extension ContentView {
+    private func updateNotesCounterSubscription() {
+        switch locationManager.selectedChannel {
+        case .mesh:
+            if let block = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
+                LocationNotesCounter.shared.subscribe(geohash: block)
+            } else {
+                LocationNotesCounter.shared.cancel()
+            }
+        case .location:
+            LocationNotesCounter.shared.cancel()
+        }
+    }
 }
 
 // MARK: - Helper Views

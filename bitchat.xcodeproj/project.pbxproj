@@ -43,6 +43,8 @@
 		0481A3AA2E74D28800FC845E /* LocationNotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0481A3A82E74D28800FC845E /* LocationNotesView.swift */; };
 		0481A3AC2E74D29400FC845E /* LocationNotesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0481A3AB2E74D29400FC845E /* LocationNotesManager.swift */; };
 		0481A3AD2E74D29400FC845E /* LocationNotesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0481A3AB2E74D29400FC845E /* LocationNotesManager.swift */; };
+		0481A3AF2E74E06300FC845E /* LocationNotesCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0481A3AE2E74E06300FC845E /* LocationNotesCounter.swift */; };
+		0481A3B02E74E06300FC845E /* LocationNotesCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0481A3AE2E74E06300FC845E /* LocationNotesCounter.swift */; };
 		048A4BE72E5CCCC300162C4A /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048A4BE62E5CCCC300162C4A /* TransportConfig.swift */; };
 		048A4BE82E5CCCC300162C4A /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048A4BE62E5CCCC300162C4A /* TransportConfig.swift */; };
 		048A4BE92E5CCCC300162C4B /* TransportConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048A4BE62E5CCCC300162C4A /* TransportConfig.swift */; };
@@ -240,6 +242,7 @@
 		0481A38F2E734CAE00FC845E /* CommandProcessorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandProcessorTests.swift; sourceTree = "<group>"; };
 		0481A3A82E74D28800FC845E /* LocationNotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationNotesView.swift; sourceTree = "<group>"; };
 		0481A3AB2E74D29400FC845E /* LocationNotesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationNotesManager.swift; sourceTree = "<group>"; };
+		0481A3AE2E74E06300FC845E /* LocationNotesCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationNotesCounter.swift; sourceTree = "<group>"; };
 		048A4BE62E5CCCC300162C4A /* TransportConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportConfig.swift; sourceTree = "<group>"; };
 		048A4C272E5FCD6600162C4A /* GeohashBookmarksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeohashBookmarksStore.swift; sourceTree = "<group>"; };
 		048A4C2A2E5FCE0300162C4A /* GeohashBookmarksStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeohashBookmarksStoreTests.swift; sourceTree = "<group>"; };
@@ -594,8 +597,9 @@
 		D98A3186D7E4C72E35BDF7FE /* Services */ = {
 			isa = PBXGroup;
 			children = (
-				0481A3AB2E74D29400FC845E /* LocationNotesManager.swift */,
 				0481A3452E6D869F00FC845E /* Tor */,
+				0481A3AE2E74E06300FC845E /* LocationNotesCounter.swift */,
+				0481A3AB2E74D29400FC845E /* LocationNotesManager.swift */,
 				048A4C272E5FCD6600162C4A /* GeohashBookmarksStore.swift */,
 				048A4BE62E5CCCC300162C4A /* TransportConfig.swift */,
 				AA77BB10CC22DD33EE44FF55 /* VerificationService.swift */,
@@ -836,6 +840,7 @@
 				047502B92E560F690083520F /* RelayController.swift in Sources */,
 				6E7761E21C99F28AE2F9BE5F /* BitchatApp.swift in Sources */,
 				84E3F9B64FB7FB4A140BD0A8 /* BitchatPeer.swift in Sources */,
+				0481A3B02E74E06300FC845E /* LocationNotesCounter.swift in Sources */,
 				923027D6F2F417AFA2488127 /* BitchatProtocol.swift in Sources */,
 				D450CF41F207BDE1A1AAA56E /* ChatViewModel.swift in Sources */,
 				B0CA7796B2B2AC2B33F84548 /* CompressionUtil.swift in Sources */,
@@ -903,6 +908,7 @@
 				047502BA2E560F690083520F /* RelayController.swift in Sources */,
 				10E68BB889356219189E38EC /* BitchatApp.swift in Sources */,
 				84D13329AB7EE1D65A37438A /* BitchatPeer.swift in Sources */,
+				0481A3AF2E74E06300FC845E /* LocationNotesCounter.swift in Sources */,
 				6DE056E1EE9850E9FBF50157 /* BitchatProtocol.swift in Sources */,
 				7576A357B278E5733E9D9F33 /* ChatViewModel.swift in Sources */,
 				7DCA0DBCB8884E3B31C7BCE3 /* CompressionUtil.swift in Sources */,
