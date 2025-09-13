@@ -21,7 +21,7 @@ struct LocationChannelsSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("#location channels")
                     .font(.system(size: 18, design: .monospaced))
-                Text("chat with people near you using geohash channels. only a coarse geohash is shared, never exact gps.")
+                Text("chat with people near you using geohash channels. only a coarse geohash is shared, never exact gps. your IP address is hidden by routing all traffic over tor.")
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundColor(.secondary)
 
@@ -219,44 +219,49 @@ struct LocationChannelsSheet: View {
 
             // Bookmarked geohashes
             if !bookmarks.bookmarks.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("bookmarked")
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(.secondary)
+                    VStack(spacing: 6) {
+                        ForEach(bookmarks.bookmarks, id: \.self) { gh in
+                            let level = levelForLength(gh.count)
+                            let channel = GeohashChannel(level: level, geohash: gh)
+                            let coverage = coverageString(forPrecision: gh.count)
+                            let subtitle = "#\(gh) • \(coverage)"
+                            let name = bookmarks.bookmarkNames[gh]
+                            channelRow(
+                                title: geohashHashTitleWithCount(gh),
+                                subtitlePrefix: subtitle,
+                                subtitleName: name.map { formattedNamePrefix(for: level) + $0 },
+                                isSelected: isSelected(channel),
+                                trailingAccessory: {
+                                    Button(action: { bookmarks.toggle(gh) }) {
+                                        Image(systemName: bookmarks.isBookmarked(gh) ? "bookmark.fill" : "bookmark")
+                                            .font(.system(size: 14))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.leading, 8)
+                                }
+                            ) {
+                                // For bookmarked selection, mark teleported based on regional membership
+                                let inRegional = manager.availableChannels.contains { $0.geohash == gh }
+                                if !inRegional && !manager.availableChannels.isEmpty {
+                                    manager.markTeleported(for: gh, true)
+                                } else {
+                                    manager.markTeleported(for: gh, false)
+                                }
+                                manager.select(ChannelID.location(channel))
+                                isPresented = false
+                            }
+                            .onAppear { bookmarks.resolveNameIfNeeded(for: gh) }
+                        }
+                    }
+                    .padding(12)
+                    .background(Color.secondary.opacity(0.12))
+                    .cornerRadius(8)
                 }
                 .listRowSeparator(.hidden)
-                ForEach(bookmarks.bookmarks, id: \.self) { gh in
-                    let level = levelForLength(gh.count)
-                    let channel = GeohashChannel(level: level, geohash: gh)
-                    let coverage = coverageString(forPrecision: gh.count)
-                    let subtitle = "#\(gh) • \(coverage)"
-                    let name = bookmarks.bookmarkNames[gh]
-                    channelRow(
-                        title: geohashHashTitleWithCount(gh),
-                        subtitlePrefix: subtitle,
-                        subtitleName: name.map { formattedNamePrefix(for: level) + $0 },
-                        isSelected: isSelected(channel),
-                        trailingAccessory: {
-                            Button(action: { bookmarks.toggle(gh) }) {
-                                Image(systemName: bookmarks.isBookmarked(gh) ? "bookmark.fill" : "bookmark")
-                                    .font(.system(size: 14))
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.leading, 8)
-                        }
-                    ) {
-                        // For bookmarked selection, mark teleported based on regional membership
-                        let inRegional = manager.availableChannels.contains { $0.geohash == gh }
-                        if !inRegional && !manager.availableChannels.isEmpty {
-                            manager.markTeleported(for: gh, true)
-                        } else {
-                            manager.markTeleported(for: gh, false)
-                        }
-                        manager.select(ChannelID.location(channel))
-                        isPresented = false
-                    }
-                    .onAppear { bookmarks.resolveNameIfNeeded(for: gh) }
-                }
             }
 
             // Footer action inside the list
@@ -274,6 +279,7 @@ struct LocationChannelsSheet: View {
                 }
                 .buttonStyle(.plain)
                 .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.plain)
