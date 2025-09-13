@@ -33,7 +33,6 @@
 		0481A3472E6D869F00FC845E /* TorURLSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0481A3442E6D869F00FC845E /* TorURLSession.swift */; };
 		0481A3482E6D869F00FC845E /* TorManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0481A3432E6D869F00FC845E /* TorManager.swift */; };
 		0481A3492E6D869F00FC845E /* TorURLSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0481A3442E6D869F00FC845E /* TorURLSession.swift */; };
-
 		0481A35B2E6D9BEF00FC845E /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 0481A35A2E6D9BEF00FC845E /* libz.tbd */; };
 		0481A35D2E6DA18600FC845E /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 0481A35C2E6DA18600FC845E /* libz.tbd */; };
 		0481A3902E734CAE00FC845E /* CommandProcessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0481A38F2E734CAE00FC845E /* CommandProcessorTests.swift */; };
@@ -383,7 +382,6 @@
 				0481A39F2E744D6300FC845E /* tor-nolzma.xcframework */,
 				0481A35A2E6D9BEF00FC845E /* libz.tbd */,
 				0481A35C2E6DA18600FC845E /* libz.tbd */,
-
 			);
 			path = Frameworks;
 			sourceTree = "<group>";
@@ -815,7 +813,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 				7DD72D928FF9DD3CA81B46B0 /* Assets.xcassets in Resources */,
 				E0A1B2C3D4E5F6012345678D /* relays/online_relays_gps.csv in Resources */,
 			);
