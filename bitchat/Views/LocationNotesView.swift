@@ -72,7 +72,7 @@ struct LocationNotesView: View {
                             Text(note.displayName)
                                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                                 .foregroundColor(secondaryTextColor)
-                            Text(note.createdAt, style: .time)
+                            Text(timestampText(for: note.createdAt))
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(secondaryTextColor.opacity(0.8))
                         }
@@ -116,4 +116,39 @@ struct LocationNotesView: View {
         manager.send(content: content, nickname: viewModel.nickname)
         draft = ""
     }
+
+    // MARK: - Timestamp Formatting
+    private func timestampText(for date: Date) -> String {
+        let now = Date()
+        if let days = Calendar.current.dateComponents([.day], from: date, to: now).day, days < 7 {
+            // Relative (minute/hour/day), no seconds
+            return Self.relativeFormatter.string(from: date, to: now) ?? ""
+        } else {
+            // Absolute date (MMM d or MMM d, yyyy if different year)
+            let sameYear = Calendar.current.isDate(date, equalTo: now, toGranularity: .year)
+            let fmt = sameYear ? Self.absDateFormatter : Self.absDateYearFormatter
+            return fmt.string(from: date)
+        }
+    }
+
+    private static let relativeFormatter: DateComponentsFormatter = {
+        let f = DateComponentsFormatter()
+        f.allowedUnits = [.day, .hour, .minute]
+        f.maximumUnitCount = 1
+        f.unitsStyle = .abbreviated
+        f.collapsesLargestUnit = true
+        return f
+    }()
+
+    private static let absDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMM d")
+        return f
+    }()
+
+    private static let absDateYearFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMM d, y")
+        return f
+    }()
 }
