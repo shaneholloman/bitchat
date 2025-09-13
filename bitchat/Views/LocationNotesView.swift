@@ -42,8 +42,14 @@ struct LocationNotesView: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("notes @ #\(geohash) (\(manager.notes.count))")
-                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                HStack(spacing: 6) {
+                    Text("notes @ #\(geohash)")
+                        .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    let c = manager.notes.count
+                    Text("(\(c) \(c == 1 ? "note" : "notes"))")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(secondaryTextColor)
+                }
                 if let buildingName = locationManager.locationNames[.building], !buildingName.isEmpty {
                     Text(buildingName)
                         .font(.system(size: 12, design: .monospaced))
