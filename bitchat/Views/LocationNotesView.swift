@@ -27,6 +27,10 @@ struct LocationNotesView: View {
     private var secondaryTextColor: Color {
         colorScheme == .dark ? Color.green.opacity(0.8) : Color(red: 0, green: 0.5, blue: 0).opacity(0.8)
     }
+    // Slightly darker green for hash suffix emphasis
+    private var darkerTextColor: Color {
+        colorScheme == .dark ? Color.green : Color(red: 0, green: 0.4, blue: 0)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,6 +64,7 @@ struct LocationNotesView: View {
                     Text("#\(geohash)")
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
                         .foregroundColor(textColor)
+                        .padding(.leading, 6)
                 }
                 if let buildingName = locationManager.locationNames[.building], !buildingName.isEmpty {
                     Text(buildingName)
@@ -97,15 +102,15 @@ struct LocationNotesView: View {
                             HStack(spacing: 0) {
                                 Text("@")
                                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                    .foregroundColor(secondaryTextColor)
+                                    .foregroundColor(textColor)
                                 let parts = splitSuffix(from: note.displayName)
                                 Text(parts.0)
                                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                    .foregroundColor(secondaryTextColor)
+                                    .foregroundColor(textColor)
                                 if !parts.1.isEmpty {
                                     Text(parts.1)
                                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(darkerTextColor)
                                 }
                             }
                             Text(timestampText(for: note.createdAt))

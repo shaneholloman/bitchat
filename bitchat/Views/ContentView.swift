@@ -1165,7 +1165,7 @@ struct ContentView: View {
                         .accessibilityLabel("location channels")
                 }
                 .buttonStyle(.plain)
-                .padding(.leading, 8)
+                .padding(.leading, 14)
                 .padding(.trailing, 8)
 
                 // Bookmark toggle (geochats): position after the #geohash badge with same spacing
