@@ -1174,6 +1174,7 @@ struct ContentView: View {
                         .accessibilityLabel("location channels")
                 }
                 .buttonStyle(.plain)
+                .padding(.leading, 8)
                 .padding(.trailing, 8)
 
                 // Notes icon (mesh only and when location is authorized), to the right of #mesh
