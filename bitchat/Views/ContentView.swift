@@ -1166,7 +1166,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 14)
-                .padding(.trailing, 8)
+                .padding(.trailing, 4)
 
                 // Bookmark toggle (geochats): position after the #geohash badge with same spacing
                 if case .location(let ch) = locationManager.selectedChannel {
@@ -1175,7 +1175,7 @@ struct ContentView: View {
                             .font(.system(size: 12))
                     }
                     .buttonStyle(.plain)
-                    .padding(.leading, 8)
+                    .padding(.leading, 4)
                     .accessibilityLabel("Toggle bookmark for #\(ch.geohash)")
                 }
 
@@ -1199,7 +1199,7 @@ struct ContentView: View {
                         .fixedSize(horizontal: true, vertical: false)
                     }
                     .buttonStyle(.plain)
-                    .padding(.leading, 8)
+                    .padding(.leading, 4)
                     .accessibilityLabel("Location notes for this place")
                 }
 
