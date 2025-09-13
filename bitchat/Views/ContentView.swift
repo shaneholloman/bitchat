@@ -1530,8 +1530,16 @@ extension ContentView {
             if locationManager.permissionState == .authorized {
                 LocationChannelManager.shared.refreshChannels()
             }
-            if let building = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
-                LocationNotesCounter.shared.subscribe(geohash: building)
+            if locationManager.permissionState == .authorized {
+                if let building = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
+                    LocationNotesCounter.shared.subscribe(geohash: building)
+                } else {
+                    // Keep existing subscription if we had one to avoid flicker
+                    // Only cancel if we have no known geohash
+                    if LocationNotesCounter.shared.geohash == nil {
+                        LocationNotesCounter.shared.cancel()
+                    }
+                }
             } else {
                 LocationNotesCounter.shared.cancel()
             }

@@ -17,9 +17,10 @@ final class LocationNotesCounter: ObservableObject {
     func subscribe(geohash gh: String) {
         let norm = gh.lowercased()
         if geohash == norm { return }
+        // Do not clear count immediately to avoid UI flicker; keep last known
+        // value until initial load completes on the new subscription.
         cancel()
         geohash = norm
-        count = 0
         noteIDs.removeAll()
         initialLoadComplete = false
 
