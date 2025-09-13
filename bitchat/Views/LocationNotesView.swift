@@ -64,7 +64,6 @@ struct LocationNotesView: View {
                     Text("#\(geohash)")
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
                         .foregroundColor(textColor)
-                        .padding(.leading, 6)
                 }
                 if let buildingName = locationManager.locationNames[.building], !buildingName.isEmpty {
                     Text(buildingName)
