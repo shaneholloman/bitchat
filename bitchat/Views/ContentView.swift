@@ -1186,7 +1186,7 @@ struct ContentView: View {
                         LocationChannelManager.shared.enableLocationChannels()
                         LocationChannelManager.shared.refreshChannels()
                         // If we already have a block geohash, pass it; otherwise wait in the sheet.
-                        notesGeohash = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash
+                        notesGeohash = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash
                         showLocationNotes = true
                     }) {
                         HStack(alignment: .center, spacing: 4) {
@@ -1240,7 +1240,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showLocationNotes) {
             Group {
-                if let gh = notesGeohash ?? LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
+                if let gh = notesGeohash ?? LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
                     LocationNotesView(geohash: gh, onNotesCountChanged: { cnt in sheetNotesCount = cnt })
                         .environmentObject(viewModel)
                 } else {
@@ -1286,8 +1286,8 @@ struct ContentView: View {
                 sheetNotesCount = 0
             }
             .onChange(of: locationManager.availableChannels) { channels in
-                if let current = channels.first(where: { $0.level == .block })?.geohash,
-                   notesGeohash != current {
+                if let current = channels.first(where: { $0.level == .building })?.geohash,
+                    notesGeohash != current {
                     notesGeohash = current
                     #if os(iOS)
                     // Light taptic when geohash changes while the sheet is open
@@ -1530,8 +1530,8 @@ extension ContentView {
             if locationManager.permissionState == .authorized {
                 LocationChannelManager.shared.refreshChannels()
             }
-            if let block = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
-                LocationNotesCounter.shared.subscribe(geohash: block)
+            if let building = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
+                LocationNotesCounter.shared.subscribe(geohash: building)
             } else {
                 LocationNotesCounter.shared.cancel()
             }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Lightweight background counter for location notes (kind 1) at block-level geohash.
+/// Lightweight background counter for location notes (kind 1) at building-level geohash (8 chars).
 @MainActor
 final class LocationNotesCounter: ObservableObject {
     static let shared = LocationNotesCounter()
