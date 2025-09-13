@@ -97,7 +97,7 @@ struct LocationNotesView: View {
                 ForEach(manager.notes) { note in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            // Render @name with darker green for the #abcd suffix to match chat style
+                            // Show @name without the #abcd suffix; timestamp in brackets
                             HStack(spacing: 0) {
                                 Text("@")
                                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
@@ -106,13 +106,9 @@ struct LocationNotesView: View {
                                 Text(parts.0)
                                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                                     .foregroundColor(textColor)
-                                if !parts.1.isEmpty {
-                                    Text(parts.1)
-                                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                        .foregroundColor(textColor.opacity(0.6))
-                                }
                             }
-                            Text(timestampText(for: note.createdAt))
+                            let ts = timestampText(for: note.createdAt)
+                            Text(ts.isEmpty ? "" : "[\(ts)]")
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(secondaryTextColor.opacity(0.8))
                         }
