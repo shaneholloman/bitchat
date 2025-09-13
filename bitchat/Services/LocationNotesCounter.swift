@@ -28,7 +28,8 @@ final class LocationNotesCounter: ObservableObject {
         subscriptionID = subID
         let filter = NostrFilter.geohashNotes(norm, since: nil, limit: 500)
         let relays = GeoRelayDirectory.shared.closestRelays(toGeohash: norm, count: TransportConfig.nostrGeoRelayCount)
-        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relays, handler: { [weak self] event in
+        let relayUrls: [String]? = relays.isEmpty ? nil : relays
+        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relayUrls, handler: { [weak self] event in
             guard let self = self else { return }
             guard event.kind == NostrProtocol.EventKind.textNote.rawValue else { return }
             guard event.tags.contains(where: { $0.count >= 2 && $0[0].lowercased() == "g" && $0[1].lowercased() == norm }) else { return }

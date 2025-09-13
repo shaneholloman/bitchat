@@ -48,8 +48,9 @@ final class LocationNotesManager: ObservableObject {
         // For persistent notes, allow relays to return recent history without an aggressive time cutoff
         let filter = NostrFilter.geohashNotes(geohash, since: nil, limit: 200)
         let relays = GeoRelayDirectory.shared.closestRelays(toGeohash: geohash, count: TransportConfig.nostrGeoRelayCount)
+        let relayUrls: [String]? = relays.isEmpty ? nil : relays
         initialLoadComplete = false
-        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relays, handler: { [weak self] event in
+        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relayUrls, handler: { [weak self] event in
             guard let self = self else { return }
             guard event.kind == NostrProtocol.EventKind.textNote.rawValue else { return }
             // Ensure matching tag
