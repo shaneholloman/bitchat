@@ -55,8 +55,11 @@ struct LocationNotesView: View {
                     let c = manager.notes.count
                     Text("\(c) \(c == 1 ? "note" : "notes") ")
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
-                    Text("@ #\(geohash)")
+                    Text("@")
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    Text("#\(geohash)")
+                        .font(.system(size: 16, weight: .bold, design: .monospaced))
+                        .foregroundColor(secondaryTextColor)
                 }
                 if let buildingName = locationManager.locationNames[.building], !buildingName.isEmpty {
                     Text(buildingName)
@@ -90,7 +93,7 @@ struct LocationNotesView: View {
                 ForEach(manager.notes) { note in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            Text(note.displayName)
+                            Text("@\(note.displayName)")
                                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                                 .foregroundColor(secondaryTextColor)
                             Text(timestampText(for: note.createdAt))
