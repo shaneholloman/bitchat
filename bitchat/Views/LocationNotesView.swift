@@ -6,6 +6,7 @@ struct LocationNotesView: View {
     let geohash: String
 
     @Environment(\.colorScheme) var colorScheme
+    @ObservedObject private var locationManager = LocationChannelManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var draft: String = ""
 
@@ -43,9 +44,11 @@ struct LocationNotesView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("notes @ #\(geohash)")
                     .font(.system(size: 16, weight: .bold, design: .monospaced))
-                Text("street-level notes")
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(secondaryTextColor)
+                if let blockName = locationManager.locationNames[.block], !blockName.isEmpty {
+                    Text(blockName)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(secondaryTextColor)
+                }
             }
             Spacer()
             Button(action: { dismiss() }) {
