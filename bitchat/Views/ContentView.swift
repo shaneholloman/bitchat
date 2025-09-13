@@ -52,7 +52,7 @@ struct ContentView: View {
     @State private var expandedMessageIDs: Set<String> = []
     @State private var showLocationNotes = false
     @State private var notesGeohash: String? = nil
-    @State private var notesRefreshTimer: Timer? = nil
+    // Timer-based refresh removed; use LocationChannelManager live updates instead
     // Window sizes for rendering (infinite scroll up)
     @State private var windowCountPublic: Int = 300
     @State private var windowCountPrivate: [String: Int] = [:]
@@ -1174,8 +1174,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
 
-                // Notes icon (mesh only), to the right of #mesh
-                if case .mesh = locationManager.selectedChannel {
+                // Notes icon (mesh only and when location is authorized), to the right of #mesh
+                if case .mesh = locationManager.selectedChannel, locationManager.permissionState == .authorized {
                     Button(action: {
                         // Kick a one-shot refresh and show the sheet immediately.
                         LocationChannelManager.shared.enableLocationChannels()
@@ -1277,17 +1277,12 @@ struct ContentView: View {
                 }
             }
             .onAppear {
-                // Ensure we are authorized and start periodic refresh while the sheet is open
+                // Ensure we are authorized and start live location updates (distance-filtered)
                 LocationChannelManager.shared.enableLocationChannels()
-                LocationChannelManager.shared.refreshChannels()
-                notesRefreshTimer?.invalidate()
-                notesRefreshTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
-                    LocationChannelManager.shared.refreshChannels()
-                }
+                LocationChannelManager.shared.beginLiveRefresh()
             }
             .onDisappear {
-                notesRefreshTimer?.invalidate()
-                notesRefreshTimer = nil
+                LocationChannelManager.shared.endLiveRefresh()
             }
         }
         .onAppear { updateNotesCounterSubscription() }
