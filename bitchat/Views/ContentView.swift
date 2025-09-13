@@ -1174,6 +1174,7 @@ struct ContentView: View {
                         .accessibilityLabel("location channels")
                 }
                 .buttonStyle(.plain)
+                .padding(.trailing, 8)
 
                 // Notes icon (mesh only and when location is authorized), to the right of #mesh
                 if case .mesh = locationManager.selectedChannel, locationManager.permissionState == .authorized {
@@ -1195,6 +1196,7 @@ struct ContentView: View {
                         .fixedSize(horizontal: true, vertical: false)
                     }
                     .buttonStyle(.plain)
+                    .padding(.leading, 8)
                     .accessibilityLabel("Location notes for this place")
                 }
 
@@ -1208,6 +1210,7 @@ struct ContentView: View {
                         .accessibilityHidden(true)
                 }
                 .foregroundColor(headerCountColor)
+                .padding(.leading, 8)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
 
