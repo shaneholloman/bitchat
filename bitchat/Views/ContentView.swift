@@ -1185,7 +1185,7 @@ struct ContentView: View {
                         showLocationNotes = true
                     }) {
                         HStack(spacing: 4) {
-                            Image(systemName: "note.text")
+                            Image(systemName: "long.text.page.and.pencil")
                                 .font(.system(size: 12))
                                 .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
                             if let c = notesCounter.count {
