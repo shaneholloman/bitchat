@@ -1518,6 +1518,10 @@ extension ContentView {
     private func updateNotesCounterSubscription() {
         switch locationManager.selectedChannel {
         case .mesh:
+            // Ensure we have a fresh one-shot location fix so building geohash is current
+            if locationManager.permissionState == .authorized {
+                LocationChannelManager.shared.refreshChannels()
+            }
             if let building = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
                 LocationNotesCounter.shared.subscribe(geohash: building)
             } else {
