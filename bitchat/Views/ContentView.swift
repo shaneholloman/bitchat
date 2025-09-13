@@ -1266,11 +1266,7 @@ struct ContentView: View {
                     }
                     .background(backgroundColor)
                     .foregroundColor(textColor)
-                    .onChange(of: locationManager.availableChannels) { channels in
-                        if let building = channels.first(where: { $0.level == .building }) {
-                            if notesGeohash != building.geohash { notesGeohash = building.geohash }
-                        }
-                    }
+                    // per-sheet global onChange added below
                 }
             }
             .onAppear {
@@ -1280,6 +1276,18 @@ struct ContentView: View {
             }
             .onDisappear {
                 LocationChannelManager.shared.endLiveRefresh()
+            }
+            .onChange(of: locationManager.availableChannels) { channels in
+                if let current = channels.first(where: { $0.level == .building })?.geohash,
+                   notesGeohash != current {
+                    notesGeohash = current
+                    #if os(iOS)
+                    // Light taptic when geohash changes while the sheet is open
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.prepare()
+                    generator.impactOccurred()
+                    #endif
+                }
             }
         }
         .onAppear {
