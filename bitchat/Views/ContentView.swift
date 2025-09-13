@@ -1140,15 +1140,6 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open unread private chat")
                 }
-                // Bookmark toggle for current geohash (not shown for mesh)
-                if case .location(let ch) = locationManager.selectedChannel {
-                    Button(action: { GeohashBookmarksStore.shared.toggle(ch.geohash) }) {
-                        Image(systemName: GeohashBookmarksStore.shared.isBookmarked(ch.geohash) ? "bookmark.fill" : "bookmark")
-                            .font(.system(size: 12))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Toggle bookmark for #\(ch.geohash)")
-                }
                 // Location channels button '#'
                 Button(action: { showLocationChannelsSheet = true }) {
                     let badgeText: String = {
@@ -1176,6 +1167,17 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .padding(.leading, 8)
                 .padding(.trailing, 8)
+
+                // Bookmark toggle (geochats): position after the #geohash badge with same spacing
+                if case .location(let ch) = locationManager.selectedChannel {
+                    Button(action: { GeohashBookmarksStore.shared.toggle(ch.geohash) }) {
+                        Image(systemName: GeohashBookmarksStore.shared.isBookmarked(ch.geohash) ? "bookmark.fill" : "bookmark")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 8)
+                    .accessibilityLabel("Toggle bookmark for #\(ch.geohash)")
+                }
 
                 // Notes icon (mesh only and when location is authorized), to the right of #mesh
                 if case .mesh = locationManager.selectedChannel, locationManager.permissionState == .authorized {
