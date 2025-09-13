@@ -1190,7 +1190,8 @@ struct ContentView: View {
                         showLocationNotes = true
                     }) {
                         HStack(alignment: .center, spacing: 4) {
-                            let hasNotes = ((notesCounter.count ?? 0) > 0) || (sheetNotesCount > 0)
+                            let currentCount = (notesCounter.count ?? 0)
+                            let hasNotes = (!notesCounter.initialLoadComplete ? max(currentCount, sheetNotesCount) : currentCount) > 0
                             Image(systemName: "long.text.page.and.pencil")
                                 .font(.system(size: 12))
                                 .foregroundColor(hasNotes ? textColor : Color.gray)
@@ -1283,7 +1284,6 @@ struct ContentView: View {
             }
             .onDisappear {
                 LocationChannelManager.shared.endLiveRefresh()
-                sheetNotesCount = 0
             }
             .onChange(of: locationManager.availableChannels) { channels in
                 if let current = channels.first(where: { $0.level == .building })?.geohash,
