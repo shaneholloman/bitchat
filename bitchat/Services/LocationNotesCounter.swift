@@ -6,7 +6,7 @@ final class LocationNotesCounter: ObservableObject {
     static let shared = LocationNotesCounter()
 
     @Published private(set) var geohash: String? = nil
-    @Published private(set) var count: Int? = nil
+    @Published private(set) var count: Int? = 0
     @Published private(set) var initialLoadComplete: Bool = false
 
     private var subscriptionID: String? = nil
@@ -19,7 +19,7 @@ final class LocationNotesCounter: ObservableObject {
         if geohash == norm { return }
         cancel()
         geohash = norm
-        count = nil
+        count = 0
         noteIDs.removeAll()
         initialLoadComplete = false
 
@@ -46,7 +46,7 @@ final class LocationNotesCounter: ObservableObject {
         }
         subscriptionID = nil
         geohash = nil
-        count = nil
+        count = 0
         noteIDs.removeAll()
     }
 }
