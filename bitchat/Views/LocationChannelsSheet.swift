@@ -381,8 +381,7 @@ struct LocationChannelsSheet: View {
         case 5: return .city
         case 6: return .neighborhood
         case 7: return .block
-        case 8: return .building
-        default: return .building
+        default: return .block
         }
     }
 }
@@ -462,8 +461,6 @@ extension LocationChannelsSheet {
     private func formattedNamePrefix(for level: GeohashChannelLevel) -> String {
         switch level {
         case .region:
-            return ""
-        case .building:
             return ""
         default:
             return "~"
