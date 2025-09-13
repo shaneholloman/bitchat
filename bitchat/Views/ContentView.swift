@@ -1282,10 +1282,31 @@ struct ContentView: View {
                 LocationChannelManager.shared.endLiveRefresh()
             }
         }
-        .onAppear { updateNotesCounterSubscription() }
-        .onChange(of: locationManager.selectedChannel) { _ in updateNotesCounterSubscription() }
+        .onAppear {
+            updateNotesCounterSubscription()
+            if case .mesh = locationManager.selectedChannel,
+               locationManager.permissionState == .authorized,
+               LocationChannelManager.shared.availableChannels.isEmpty {
+                LocationChannelManager.shared.refreshChannels()
+            }
+        }
+        .onChange(of: locationManager.selectedChannel) { _ in
+            updateNotesCounterSubscription()
+            if case .mesh = locationManager.selectedChannel,
+               locationManager.permissionState == .authorized,
+               LocationChannelManager.shared.availableChannels.isEmpty {
+                LocationChannelManager.shared.refreshChannels()
+            }
+        }
         .onChange(of: locationManager.availableChannels) { _ in updateNotesCounterSubscription() }
-        .onChange(of: locationManager.permissionState) { _ in updateNotesCounterSubscription() }
+        .onChange(of: locationManager.permissionState) { _ in
+            updateNotesCounterSubscription()
+            if case .mesh = locationManager.selectedChannel,
+               locationManager.permissionState == .authorized,
+               LocationChannelManager.shared.availableChannels.isEmpty {
+                LocationChannelManager.shared.refreshChannels()
+            }
+        }
         .alert("heads up", isPresented: $viewModel.showScreenshotPrivacyWarning) {
             Button("ok", role: .cancel) {}
         } message: {

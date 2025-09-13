@@ -37,6 +37,9 @@ struct LocationNotesView: View {
         .background(backgroundColor)
         .foregroundColor(textColor)
         .onDisappear { manager.cancel() }
+        .onChange(of: geohash) { newValue in
+            manager.setGeohash(newValue)
+        }
     }
 
     private var header: some View {
@@ -45,7 +48,7 @@ struct LocationNotesView: View {
                 HStack(spacing: 4) {
                     let c = manager.notes.count
                     Text("\(c) \(c == 1 ? "note" : "notes") ")
-                        .font(.system(size: 16, weight: .regular, design: .monospaced))
+                        .font(.system(size: 16, weight: .bold, design: .monospaced))
                     Text("@ #\(geohash)")
                         .font(.system(size: 16, weight: .bold, design: .monospaced))
                 }
