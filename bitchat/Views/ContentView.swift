@@ -1200,7 +1200,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 4)
-                .padding(.trailing, 4)
+                .padding(.trailing, 2)
 
                 HStack(spacing: 4) {
                     // People icon with count
@@ -1212,7 +1212,7 @@ struct ContentView: View {
                         .accessibilityHidden(true)
                 }
                 .foregroundColor(headerCountColor)
-                .padding(.leading, 8)
+                .padding(.leading, 2)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
 
