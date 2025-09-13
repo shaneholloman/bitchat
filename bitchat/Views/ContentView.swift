@@ -1183,7 +1183,7 @@ struct ContentView: View {
                         notesGeohash = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash
                         showLocationNotes = true
                     }) {
-                        HStack(spacing: 4) {
+                        HStack(alignment: .center, spacing: 4) {
                             Image(systemName: "long.text.page.and.pencil")
                                 .font(.system(size: 12))
                                 .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
@@ -1191,8 +1191,11 @@ struct ContentView: View {
                                 Text("\(c)")
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
                             }
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Location notes for this place")

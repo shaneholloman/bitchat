@@ -264,11 +264,13 @@ final class NostrRelayManager: ObservableObject {
                 var tracker = EOSETracker(pendingRelays: Set(urls), callback: onEOSE, timer: nil)
                 // Fallback timeout to avoid hanging if a relay never sends EOSE
                 tracker.timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-                    guard let self = self else { return }
-                    if let t = self.eoseTrackers[id] {
-                        t.timer?.invalidate()
-                        self.eoseTrackers.removeValue(forKey: id)
-                        onEOSE()
+                    Task { @MainActor in
+                        guard let self = self else { return }
+                        if let t = self.eoseTrackers[id] {
+                            t.timer?.invalidate()
+                            self.eoseTrackers.removeValue(forKey: id)
+                            onEOSE()
+                        }
                     }
                 }
                 eoseTrackers[id] = tracker
