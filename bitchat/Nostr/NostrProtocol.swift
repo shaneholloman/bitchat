@@ -129,15 +129,11 @@ struct NostrProtocol {
         content: String,
         geohash: String,
         senderIdentity: NostrIdentity,
-        nickname: String? = nil,
-        teleported: Bool = false
+        nickname: String? = nil
     ) throws -> NostrEvent {
         var tags = [["g", geohash]]
         if let nickname = nickname?.trimmingCharacters(in: .whitespacesAndNewlines), !nickname.isEmpty {
             tags.append(["n", nickname])
-        }
-        if teleported {
-            tags.append(["t", "teleport"])
         }
         let event = NostrEvent(
             pubkey: senderIdentity.publicKeyHex,

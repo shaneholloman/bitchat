@@ -71,8 +71,7 @@ final class LocationNotesManager: ObservableObject {
                 content: trimmed,
                 geohash: geohash,
                 senderIdentity: id,
-                nickname: nickname,
-                teleported: LocationChannelManager.shared.teleported
+                nickname: nickname
             )
             let relays = GeoRelayDirectory.shared.closestRelays(toGeohash: geohash, count: TransportConfig.nostrGeoRelayCount)
             NostrRelayManager.shared.sendEvent(event, to: relays)
