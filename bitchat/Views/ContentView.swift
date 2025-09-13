@@ -1193,7 +1193,7 @@ struct ContentView: View {
                             let hasNotes = ((notesCounter.count ?? 0) > 0) || (sheetNotesCount > 0)
                             Image(systemName: "long.text.page.and.pencil")
                                 .font(.system(size: 12))
-                                .foregroundColor(hasNotes ? Color(hue: 0.60, saturation: 0.85, brightness: 0.82) : Color.gray)
+                                .foregroundColor(hasNotes ? textColor : Color.gray)
                                 .padding(.top, 1)
                         }
                         .fixedSize(horizontal: true, vertical: false)
