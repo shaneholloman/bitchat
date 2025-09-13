@@ -122,7 +122,8 @@ struct LocationNotesView: View {
         let now = Date()
         if let days = Calendar.current.dateComponents([.day], from: date, to: now).day, days < 7 {
             // Relative (minute/hour/day), no seconds
-            return Self.relativeFormatter.string(from: date, to: now) ?? ""
+            let rel = Self.relativeFormatter.string(from: date, to: now) ?? ""
+            return rel.isEmpty ? "" : "\(rel) ago"
         } else {
             // Absolute date (MMM d or MMM d, yyyy if different year)
             let sameYear = Calendar.current.isDate(date, equalTo: now, toGranularity: .year)
