@@ -4,15 +4,17 @@ struct LocationNotesView: View {
     @EnvironmentObject var viewModel: ChatViewModel
     @StateObject private var manager: LocationNotesManager
     let geohash: String
+    let onNotesCountChanged: ((Int) -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
     @ObservedObject private var locationManager = LocationChannelManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var draft: String = ""
 
-    init(geohash: String) {
+    init(geohash: String, onNotesCountChanged: ((Int) -> Void)? = nil) {
         let gh = geohash.lowercased()
         self.geohash = gh
+        self.onNotesCountChanged = onNotesCountChanged
         _manager = StateObject(wrappedValue: LocationNotesManager(geohash: gh))
     }
 
@@ -39,6 +41,10 @@ struct LocationNotesView: View {
         .onDisappear { manager.cancel() }
         .onChange(of: geohash) { newValue in
             manager.setGeohash(newValue)
+        }
+        .onAppear { onNotesCountChanged?(manager.notes.count) }
+        .onChange(of: manager.notes.count) { newValue in
+            onNotesCountChanged?(newValue)
         }
     }
 

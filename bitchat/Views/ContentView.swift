@@ -52,6 +52,7 @@ struct ContentView: View {
     @State private var expandedMessageIDs: Set<String> = []
     @State private var showLocationNotes = false
     @State private var notesGeohash: String? = nil
+    @State private var sheetNotesCount: Int = 0
     // Timer-based refresh removed; use LocationChannelManager live updates instead
     // Window sizes for rendering (infinite scroll up)
     @State private var windowCountPublic: Int = 300
@@ -1185,7 +1186,7 @@ struct ContentView: View {
                         showLocationNotes = true
                     }) {
                         HStack(alignment: .center, spacing: 4) {
-                            let hasNotes = (notesCounter.count ?? 0) > 0
+                            let hasNotes = ((notesCounter.count ?? 0) > 0) || (sheetNotesCount > 0)
                             Image(systemName: "long.text.page.and.pencil")
                                 .font(.system(size: 12))
                                 .foregroundColor(hasNotes ? Color(hue: 0.60, saturation: 0.85, brightness: 0.82) : Color.gray)
@@ -1234,7 +1235,7 @@ struct ContentView: View {
         .sheet(isPresented: $showLocationNotes) {
             Group {
                 if let gh = notesGeohash ?? LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
-                    LocationNotesView(geohash: gh)
+                    LocationNotesView(geohash: gh, onNotesCountChanged: { cnt in sheetNotesCount = cnt })
                         .environmentObject(viewModel)
                 } else {
                     VStack(spacing: 12) {
@@ -1276,6 +1277,7 @@ struct ContentView: View {
             }
             .onDisappear {
                 LocationChannelManager.shared.endLiveRefresh()
+                sheetNotesCount = 0
             }
             .onChange(of: locationManager.availableChannels) { channels in
                 if let current = channels.first(where: { $0.level == .building })?.geohash,
