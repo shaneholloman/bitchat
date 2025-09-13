@@ -14,6 +14,8 @@ struct LocationChannelsSheet: View {
     @State private var customGeohash: String = ""
     @State private var customError: String? = nil
 
+    private var backgroundColor: Color { colorScheme == .dark ? .black : .white }
+
     var body: some View {
         NavigationView {
             VStack(alignment: .leading, spacing: 12) {
@@ -54,6 +56,7 @@ struct LocationChannelsSheet: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+            .background(backgroundColor)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -87,6 +90,7 @@ struct LocationChannelsSheet: View {
         #if os(macOS)
         .frame(minWidth: 420, minHeight: 520)
         #endif
+        .background(backgroundColor)
         .onAppear {
             // Refresh channels when opening
             if manager.permissionState == LocationChannelManager.PermissionState.authorized {
@@ -273,6 +277,8 @@ struct LocationChannelsSheet: View {
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(backgroundColor)
     }
 
     private func isSelected(_ channel: GeohashChannel) -> Bool {
