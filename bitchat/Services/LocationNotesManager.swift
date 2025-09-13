@@ -22,6 +22,7 @@ final class LocationNotesManager: ObservableObject {
 
     @Published private(set) var notes: [Note] = [] // reverse-chron sorted
     @Published private(set) var geohash: String
+    @Published private(set) var initialLoadComplete: Bool = false
     private var subscriptionID: String?
 
     init(geohash: String) {
@@ -47,7 +48,8 @@ final class LocationNotesManager: ObservableObject {
         // For persistent notes, allow relays to return recent history without an aggressive time cutoff
         let filter = NostrFilter.geohashNotes(geohash, since: nil, limit: 200)
         let relays = GeoRelayDirectory.shared.closestRelays(toGeohash: geohash, count: TransportConfig.nostrGeoRelayCount)
-        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relays) { [weak self] event in
+        initialLoadComplete = false
+        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relays, handler: { [weak self] event in
             guard let self = self else { return }
             guard event.kind == NostrProtocol.EventKind.textNote.rawValue else { return }
             // Ensure matching tag
@@ -58,7 +60,9 @@ final class LocationNotesManager: ObservableObject {
             let note = Note(id: event.id, pubkey: event.pubkey, content: event.content, createdAt: ts, nickname: nick)
             self.notes.append(note)
             self.notes.sort { $0.createdAt > $1.createdAt }
-        }
+        }, onEOSE: { [weak self] in
+            self?.initialLoadComplete = true
+        })
     }
 
     /// Send a location note for the current geohash using the per-geohash identity.

@@ -2,7 +2,6 @@ import Foundation
 
 /// Levels of location channels mapped to geohash precisions.
 enum GeohashChannelLevel: CaseIterable, Codable, Equatable {
-    case building
     case block
     case neighborhood
     case city
@@ -12,7 +11,6 @@ enum GeohashChannelLevel: CaseIterable, Codable, Equatable {
     /// Geohash length used for this level.
     var precision: Int {
         switch self {
-        case .building: return 8
         case .block: return 7
         case .neighborhood: return 6
         case .city: return 5
@@ -23,7 +21,6 @@ enum GeohashChannelLevel: CaseIterable, Codable, Equatable {
 
     var displayName: String {
         switch self {
-        case .building: return "Building"
         case .block: return "Block"
         case .neighborhood: return "Neighborhood"
         case .city: return "City"
@@ -38,7 +35,6 @@ extension GeohashChannelLevel {
         let container = try decoder.singleValueContainer()
         if let raw = try? container.decode(String.self) {
             switch raw {
-            case "building": self = .building
             case "block": self = .block
             case "neighborhood": self = .neighborhood
             case "city": self = .city
@@ -50,7 +46,6 @@ extension GeohashChannelLevel {
             }
         } else if let precision = try? container.decode(Int.self) {
             switch precision {
-            case 8: self = .building
             case 7: self = .block
             case 6: self = .neighborhood
             case 5: self = .city
@@ -66,7 +61,6 @@ extension GeohashChannelLevel {
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
-        case .building: try container.encode("building")
         case .block: try container.encode("block")
         case .neighborhood: try container.encode("neighborhood")
         case .city: try container.encode("city")

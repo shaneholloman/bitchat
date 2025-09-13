@@ -7,6 +7,7 @@ final class LocationNotesCounter: ObservableObject {
 
     @Published private(set) var geohash: String? = nil
     @Published private(set) var count: Int? = nil
+    @Published private(set) var initialLoadComplete: Bool = false
 
     private var subscriptionID: String? = nil
     private var noteIDs = Set<String>()
@@ -20,12 +21,13 @@ final class LocationNotesCounter: ObservableObject {
         geohash = norm
         count = nil
         noteIDs.removeAll()
+        initialLoadComplete = false
 
         let subID = "locnotes-count-\(norm)-\(UUID().uuidString.prefix(6))"
         subscriptionID = subID
         let filter = NostrFilter.geohashNotes(norm, since: nil, limit: 500)
         let relays = GeoRelayDirectory.shared.closestRelays(toGeohash: norm, count: TransportConfig.nostrGeoRelayCount)
-        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relays) { [weak self] event in
+        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: relays, handler: { [weak self] event in
             guard let self = self else { return }
             guard event.kind == NostrProtocol.EventKind.textNote.rawValue else { return }
             guard event.tags.contains(where: { $0.count >= 2 && $0[0].lowercased() == "g" && $0[1].lowercased() == norm }) else { return }
@@ -33,7 +35,9 @@ final class LocationNotesCounter: ObservableObject {
                 self.noteIDs.insert(event.id)
                 self.count = self.noteIDs.count
             }
-        }
+        }, onEOSE: { [weak self] in
+            self?.initialLoadComplete = true
+        })
     }
 
     func cancel() {
@@ -46,4 +50,3 @@ final class LocationNotesCounter: ObservableObject {
         noteIDs.removeAll()
     }
 }
-
