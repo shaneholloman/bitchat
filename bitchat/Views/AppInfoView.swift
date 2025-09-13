@@ -199,9 +199,8 @@ struct AppInfoView: View {
             #if DEBUG
             // Debug section (visible only in Debug builds)
             DebugLogsSection(textColor: textColor, secondaryTextColor: secondaryTextColor)
+                .padding(.top)
             #endif
-            
-            .padding(.top)
         }
         .padding()
     }
