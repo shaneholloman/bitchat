@@ -474,7 +474,8 @@ struct ContentView: View {
                     case 5: return .city
                     case 6: return .neighborhood
                     case 7: return .block
-                    default: return .block
+                    case 8: return .building
+                    default: return .building
                     }
                 }
                 let level = levelForLength(gh.count)
@@ -1180,7 +1181,7 @@ struct ContentView: View {
                         LocationChannelManager.shared.enableLocationChannels()
                         LocationChannelManager.shared.refreshChannels()
                         // If we already have a block geohash, pass it; otherwise wait in the sheet.
-                        notesGeohash = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash
+                        notesGeohash = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash
                         showLocationNotes = true
                     }) {
                         HStack(spacing: 4) {
@@ -1231,7 +1232,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showLocationNotes) {
             Group {
-                if let gh = notesGeohash ?? LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
+                if let gh = notesGeohash ?? LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
                     LocationNotesView(geohash: gh)
                         .environmentObject(viewModel)
                 } else {
@@ -1265,8 +1266,8 @@ struct ContentView: View {
                     .background(backgroundColor)
                     .foregroundColor(textColor)
                     .onChange(of: locationManager.availableChannels) { channels in
-                        if notesGeohash == nil, let block = channels.first(where: { $0.level == .block }) {
-                            notesGeohash = block.geohash
+                        if notesGeohash == nil, let building = channels.first(where: { $0.level == .building }) {
+                            notesGeohash = building.geohash
                         }
                     }
                 }
@@ -1478,8 +1479,8 @@ extension ContentView {
     private func updateNotesCounterSubscription() {
         switch locationManager.selectedChannel {
         case .mesh:
-            if let block = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .block })?.geohash {
-                LocationNotesCounter.shared.subscribe(geohash: block)
+            if let building = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
+                LocationNotesCounter.shared.subscribe(geohash: building)
             } else {
                 LocationNotesCounter.shared.cancel()
             }
