@@ -58,15 +58,25 @@ struct LocationChannelsSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("close") { isPresented = false }
-                        .font(.system(size: 14, design: .monospaced))
+                    Button(action: { isPresented = false }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
                 }
             }
             #else
             .toolbar {
                 ToolbarItem(placement: .automatic) {
-                    Button("close") { isPresented = false }
-                        .font(.system(size: 14, design: .monospaced))
+                    Button(action: { isPresented = false }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
                 }
             }
             #endif
