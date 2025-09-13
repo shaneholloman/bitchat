@@ -109,7 +109,7 @@ struct LocationNotesView: View {
                                 if !parts.1.isEmpty {
                                     Text(parts.1)
                                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                        .foregroundColor(darkerTextColor)
+                                        .foregroundColor(textColor.opacity(0.6))
                                 }
                             }
                             Text(timestampText(for: note.createdAt))
