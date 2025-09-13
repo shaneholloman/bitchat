@@ -44,7 +44,11 @@ struct LocationNotesView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("notes @ #\(geohash)")
                     .font(.system(size: 16, weight: .bold, design: .monospaced))
-                if let blockName = locationManager.locationNames[.block], !blockName.isEmpty {
+                if let buildingName = locationManager.locationNames[.building], !buildingName.isEmpty {
+                    Text(buildingName)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(secondaryTextColor)
+                } else if let blockName = locationManager.locationNames[.block], !blockName.isEmpty {
                     Text(blockName)
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(secondaryTextColor)

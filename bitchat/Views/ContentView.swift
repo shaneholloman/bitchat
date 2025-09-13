@@ -52,6 +52,7 @@ struct ContentView: View {
     @State private var expandedMessageIDs: Set<String> = []
     @State private var showLocationNotes = false
     @State private var notesGeohash: String? = nil
+    @State private var notesRefreshTimer: Timer? = nil
     // Window sizes for rendering (infinite scroll up)
     @State private var windowCountPublic: Int = 300
     @State private var windowCountPrivate: [String: Int] = [:]
@@ -1269,11 +1270,24 @@ struct ContentView: View {
                     .background(backgroundColor)
                     .foregroundColor(textColor)
                     .onChange(of: locationManager.availableChannels) { channels in
-                        if notesGeohash == nil, let building = channels.first(where: { $0.level == .building }) {
-                            notesGeohash = building.geohash
+                        if let building = channels.first(where: { $0.level == .building }) {
+                            if notesGeohash != building.geohash { notesGeohash = building.geohash }
                         }
                     }
                 }
+            }
+            .onAppear {
+                // Ensure we are authorized and start periodic refresh while the sheet is open
+                LocationChannelManager.shared.enableLocationChannels()
+                LocationChannelManager.shared.refreshChannels()
+                notesRefreshTimer?.invalidate()
+                notesRefreshTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
+                    LocationChannelManager.shared.refreshChannels()
+                }
+            }
+            .onDisappear {
+                notesRefreshTimer?.invalidate()
+                notesRefreshTimer = nil
             }
         }
         .onAppear { updateNotesCounterSubscription() }
