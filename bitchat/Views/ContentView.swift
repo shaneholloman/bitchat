@@ -1140,6 +1140,40 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open unread private chat")
                 }
+                // Notes icon (mesh only and when location is authorized), to the left of #mesh
+                if case .mesh = locationManager.selectedChannel, locationManager.permissionState == .authorized {
+                    Button(action: {
+                        // Kick a one-shot refresh and show the sheet immediately.
+                        LocationChannelManager.shared.enableLocationChannels()
+                        LocationChannelManager.shared.refreshChannels()
+                        // If we already have a block geohash, pass it; otherwise wait in the sheet.
+                        notesGeohash = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash
+                        showLocationNotes = true
+                    }) {
+                        HStack(alignment: .center, spacing: 4) {
+                            let currentCount = (notesCounter.count ?? 0)
+                            let hasNotes = (!notesCounter.initialLoadComplete ? max(currentCount, sheetNotesCount) : currentCount) > 0
+                            Image(systemName: "long.text.page.and.pencil")
+                                .font(.system(size: 12))
+                                .foregroundColor(hasNotes ? textColor : Color.gray)
+                                .padding(.top, 1)
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Location notes for this place")
+                }
+
+                // Bookmark toggle (geochats): to the left of #geohash
+                if case .location(let ch) = locationManager.selectedChannel {
+                    Button(action: { GeohashBookmarksStore.shared.toggle(ch.geohash) }) {
+                        Image(systemName: GeohashBookmarksStore.shared.isBookmarked(ch.geohash) ? "bookmark.fill" : "bookmark")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Toggle bookmark for #\(ch.geohash)")
+                }
+
                 // Location channels button '#'
                 Button(action: { showLocationChannelsSheet = true }) {
                     let badgeText: String = {
@@ -1165,44 +1199,8 @@ struct ContentView: View {
                         .accessibilityLabel("location channels")
                 }
                 .buttonStyle(.plain)
-                .padding(.leading, 14)
+                .padding(.leading, 4)
                 .padding(.trailing, 4)
-
-                // Bookmark toggle (geochats): position after the #geohash badge with same spacing
-                if case .location(let ch) = locationManager.selectedChannel {
-                    Button(action: { GeohashBookmarksStore.shared.toggle(ch.geohash) }) {
-                        Image(systemName: GeohashBookmarksStore.shared.isBookmarked(ch.geohash) ? "bookmark.fill" : "bookmark")
-                            .font(.system(size: 12))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.leading, 4)
-                    .accessibilityLabel("Toggle bookmark for #\(ch.geohash)")
-                }
-
-                // Notes icon (mesh only and when location is authorized), to the right of #mesh
-                if case .mesh = locationManager.selectedChannel, locationManager.permissionState == .authorized {
-                    Button(action: {
-                        // Kick a one-shot refresh and show the sheet immediately.
-                        LocationChannelManager.shared.enableLocationChannels()
-                        LocationChannelManager.shared.refreshChannels()
-                        // If we already have a block geohash, pass it; otherwise wait in the sheet.
-                        notesGeohash = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash
-                        showLocationNotes = true
-                    }) {
-                        HStack(alignment: .center, spacing: 4) {
-                            let currentCount = (notesCounter.count ?? 0)
-                            let hasNotes = (!notesCounter.initialLoadComplete ? max(currentCount, sheetNotesCount) : currentCount) > 0
-                            Image(systemName: "long.text.page.and.pencil")
-                                .font(.system(size: 12))
-                                .foregroundColor(hasNotes ? textColor : Color.gray)
-                                .padding(.top, 1)
-                        }
-                        .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.leading, 4)
-                    .accessibilityLabel("Location notes for this place")
-                }
 
                 HStack(spacing: 4) {
                     // People icon with count
