@@ -1235,41 +1235,35 @@ struct ContentView: View {
                     LocationNotesView(geohash: gh)
                         .environmentObject(viewModel)
                 } else {
-                    ZStack {
-                        VStack(spacing: 0) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("notes")
-                                        .font(.system(size: 16, weight: .bold, design: .monospaced))
-                                    Text("acquiring location…")
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .foregroundColor(secondaryTextColor)
-                                }
-                                Spacer()
-                                Button(action: { showLocationNotes = false }) {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                                        .foregroundColor(textColor)
-                                        .frame(width: 32, height: 32)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Close")
-                            }
-                            .frame(height: 44)
-                            .padding(.horizontal, 12)
-                            .background(backgroundColor.opacity(0.95))
+                    VStack(spacing: 12) {
+                        HStack {
+                            Text("notes")
+                                .font(.system(size: 16, weight: .bold, design: .monospaced))
                             Spacer()
+                            Button(action: { showLocationNotes = false }) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(textColor)
+                                    .frame(width: 32, height: 32)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Close")
                         }
-                        // Simple system spinner while waiting for geohash
-                        ProgressView()
-                            .progressViewStyle(.circular)
+                        .frame(height: 44)
+                        .padding(.horizontal, 12)
+                        .background(backgroundColor.opacity(0.95))
+                        Text("location unavailable")
+                            .font(.system(size: 14, design: .monospaced))
+                            .foregroundColor(secondaryTextColor)
+                        Button("enable location") {
+                            LocationChannelManager.shared.enableLocationChannels()
+                            LocationChannelManager.shared.refreshChannels()
+                        }
+                        .buttonStyle(.bordered)
+                        Spacer()
                     }
                     .background(backgroundColor)
                     .foregroundColor(textColor)
-                    .onAppear {
-                        LocationChannelManager.shared.enableLocationChannels()
-                        LocationChannelManager.shared.refreshChannels()
-                    }
                     .onChange(of: locationManager.availableChannels) { channels in
                         if notesGeohash == nil, let block = channels.first(where: { $0.level == .block }) {
                             notesGeohash = block.geohash

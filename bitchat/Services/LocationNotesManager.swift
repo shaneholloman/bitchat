@@ -21,12 +21,8 @@ final class LocationNotesManager: ObservableObject {
     }
 
     @Published private(set) var notes: [Note] = [] // reverse-chron sorted
-    @Published private(set) var isLoading: Bool = true
     @Published private(set) var geohash: String
     private var subscriptionID: String?
-    private var loadingWorkItem: DispatchWorkItem?
-    private var loadingStartedAt: Date?
-    private var loadingMinDuration: TimeInterval = 0
 
     init(geohash: String) {
         self.geohash = geohash.lowercased()
@@ -46,11 +42,6 @@ final class LocationNotesManager: ObservableObject {
     }
 
     private func subscribe() {
-        // Begin loading: always display Matrix for a randomized 1–3 seconds
-        isLoading = true
-        loadingStartedAt = Date()
-        loadingMinDuration = Double.random(in: 1.0...3.0)
-        loadingWorkItem?.cancel()
         let subID = "locnotes-\(geohash)-\(UUID().uuidString.prefix(8))"
         subscriptionID = subID
         // For persistent notes, allow relays to return recent history without an aggressive time cutoff
@@ -67,24 +58,7 @@ final class LocationNotesManager: ObservableObject {
             let note = Note(id: event.id, pubkey: event.pubkey, content: event.content, createdAt: ts, nickname: nick)
             self.notes.append(note)
             self.notes.sort { $0.createdAt > $1.createdAt }
-            // Respect minimum loader time
-            if self.isLoading {
-                let elapsed = Date().timeIntervalSince(self.loadingStartedAt ?? Date())
-                if elapsed >= self.loadingMinDuration {
-                    self.isLoading = false
-                } else {
-                    self.loadingWorkItem?.cancel()
-                    let remaining = self.loadingMinDuration - elapsed
-                    let wi = DispatchWorkItem { [weak self] in self?.isLoading = false }
-                    self.loadingWorkItem = wi
-                    DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: wi)
-                }
-            }
         }
-        // Ensure we hide after the minimum loader duration even if no events arrive
-        let wi = DispatchWorkItem { [weak self] in self?.isLoading = false }
-        loadingWorkItem = wi
-        DispatchQueue.main.asyncAfter(deadline: .now() + loadingMinDuration, execute: wi)
     }
 
     /// Send a location note for the current geohash using the per-geohash identity.
@@ -105,18 +79,6 @@ final class LocationNotesManager: ObservableObject {
             // Optimistic local-echo
             let echo = Note(id: event.id, pubkey: id.publicKeyHex, content: trimmed, createdAt: Date(), nickname: nickname)
             self.notes.insert(echo, at: 0)
-            if self.isLoading {
-                let elapsed = Date().timeIntervalSince(self.loadingStartedAt ?? Date())
-                if elapsed >= self.loadingMinDuration {
-                    self.isLoading = false
-                } else {
-                    self.loadingWorkItem?.cancel()
-                    let remaining = self.loadingMinDuration - elapsed
-                    let wi = DispatchWorkItem { [weak self] in self?.isLoading = false }
-                    self.loadingWorkItem = wi
-                    DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: wi)
-                }
-            }
         } catch {
             SecureLogger.error("LocationNotesManager: failed to send note: \(error)", category: .session)
         }
@@ -128,7 +90,5 @@ final class LocationNotesManager: ObservableObject {
             NostrRelayManager.shared.unsubscribe(id: sub)
             subscriptionID = nil
         }
-        loadingWorkItem?.cancel()
-        loadingWorkItem = nil
     }
 }
