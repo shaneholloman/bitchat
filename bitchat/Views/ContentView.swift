@@ -1185,15 +1185,11 @@ struct ContentView: View {
                         showLocationNotes = true
                     }) {
                         HStack(alignment: .center, spacing: 4) {
+                            let hasNotes = (notesCounter.count ?? 0) > 0
                             Image(systemName: "long.text.page.and.pencil")
                                 .font(.system(size: 12))
-                                .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
+                                .foregroundColor(hasNotes ? Color(hue: 0.60, saturation: 0.85, brightness: 0.82) : Color.gray)
                                 .padding(.top, 1)
-                            Text("\(notesCounter.count ?? 0)")
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(Color(hue: 0.60, saturation: 0.85, brightness: 0.82))
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
                         }
                         .fixedSize(horizontal: true, vertical: false)
                     }
@@ -1286,30 +1282,10 @@ struct ContentView: View {
                 LocationChannelManager.shared.endLiveRefresh()
             }
         }
-        .onAppear {
-            updateNotesCounterSubscription()
-            // Keep live updates running while on mesh to follow building changes
-            if case .mesh = locationManager.selectedChannel, locationManager.permissionState == .authorized {
-                LocationChannelManager.shared.beginLiveRefresh()
-            }
-        }
-        .onChange(of: locationManager.selectedChannel) { _ in
-            updateNotesCounterSubscription()
-            if case .mesh = locationManager.selectedChannel, locationManager.permissionState == .authorized {
-                LocationChannelManager.shared.beginLiveRefresh()
-            } else {
-                LocationChannelManager.shared.endLiveRefresh()
-            }
-        }
+        .onAppear { updateNotesCounterSubscription() }
+        .onChange(of: locationManager.selectedChannel) { _ in updateNotesCounterSubscription() }
         .onChange(of: locationManager.availableChannels) { _ in updateNotesCounterSubscription() }
-        .onChange(of: locationManager.permissionState) { _ in
-            updateNotesCounterSubscription()
-            if case .mesh = locationManager.selectedChannel, locationManager.permissionState == .authorized {
-                LocationChannelManager.shared.beginLiveRefresh()
-            } else {
-                LocationChannelManager.shared.endLiveRefresh()
-            }
-        }
+        .onChange(of: locationManager.permissionState) { _ in updateNotesCounterSubscription() }
         .alert("heads up", isPresented: $viewModel.showScreenshotPrivacyWarning) {
             Button("ok", role: .cancel) {}
         } message: {
