@@ -16,7 +16,7 @@ final class BLEService: NSObject {
     // MARK: - Constants
     
     #if DEBUG
-    static let serviceUUID = CBUUID(string: "F47B5E2D-4A9E-4C5A-9B3F-8E1D2C3A4B5A") // testnet
+    static let serviceUUID = CBUUID(string: "F47B5E2D-4A9E-4C5A-9B3F-8E1D2C3A4B5C") // testnet
     #else
     static let serviceUUID = CBUUID(string: "F47B5E2D-4A9E-4C5A-9B3F-8E1D2C3A4B5C") // mainnet
     #endif
@@ -1276,6 +1276,118 @@ final class BLEService: NSObject {
             }
         }
     }
+
+    // File transfer with progress: send TLV payload inside a FILE_TRANSFER packet.
+    // Reports .partiallyDelivered via delegate for the provided messageID during fragmentation.
+    func sendFileTransferTLV(_ payload: Data, recipientPeerID: String?, transferId: String, messageID: String) {
+        // Build packet
+        let recipientData: Data? = recipientPeerID.flatMap { Data(hexString: $0) }
+        var packet = BitchatPacket(
+            type: MessageType.fileTransfer.rawValue,
+            senderID: myPeerIDData,
+            recipientID: recipientData,
+            timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
+            payload: payload,
+            signature: nil,
+            ttl: messageTTL
+        )
+        // For private sends, sign (integrity)
+        if recipientData != nil {
+            if let signed = noiseService.signPacket(packet) { packet = signed }
+        }
+
+        // Encode once to decide if fragmentation is needed on current links
+        let pad = padPolicy(for: packet.type)
+        guard let data = packet.toBinaryData(padding: pad) else { return }
+
+        // Determine max link MTU across active links similar to sendOnAllLinks
+        let states = snapshotPeripheralStates()
+        var minCentralWriteLen: Int?
+        for s in states where s.isConnected {
+            let m = s.peripheral.maximumWriteValueLength(for: .withoutResponse)
+            minCentralWriteLen = minCentralWriteLen.map { min($0, m) } ?? m
+        }
+        var minNotifyLen: Int?
+        do {
+            let (centrals, _) = snapshotSubscribedCentrals()
+            if !centrals.isEmpty {
+                minNotifyLen = centrals.map { $0.maximumUpdateValueLength }.min()
+            }
+        }
+
+        let needsFragment = {
+            if let minLen = [minCentralWriteLen, minNotifyLen].compactMap({ $0 }).min() {
+                return data.count > minLen
+            }
+            return false
+        }()
+
+        if needsFragment {
+            let overhead = 13 + 8 + 8 + 13
+            let minLen = [minCentralWriteLen, minNotifyLen].compactMap({ $0 }).min() ?? defaultFragmentSize
+            let chunk = max(64, minLen - overhead)
+
+            // Create fragments and emit progress per fragment
+            guard let fullData = packet.toBinaryData(padding: pad) else { return }
+            let fragmentID = Data((0..<8).map { _ in UInt8.random(in: 0...255) })
+            let fragments = stride(from: 0, to: fullData.count, by: chunk).map { offset in
+                Data(fullData[offset..<min(offset + chunk, fullData.count)])
+            }
+            let total = fragments.count
+
+            // Pause scanning for long trains as in sendFragmentedPacket
+            if total > 4 {
+                bleQueue.async { [weak self] in
+                    guard let self = self, let c = self.centralManager, c.state == .poweredOn else { return }
+                    if c.isScanning { c.stopScan() }
+                    let expectedMs = min(TransportConfig.bleExpectedWriteMaxMs, total * TransportConfig.bleExpectedWritePerFragmentMs)
+                    self.bleQueue.asyncAfter(deadline: .now() + .milliseconds(expectedMs)) { [weak self] in self?.startScanning() }
+                }
+            }
+
+            for (index, fragment) in fragments.enumerated() {
+                var fragPayload = Data()
+                fragPayload.append(fragmentID)
+                fragPayload.append(contentsOf: withUnsafeBytes(of: UInt16(index).bigEndian) { Data($0) })
+                fragPayload.append(contentsOf: withUnsafeBytes(of: UInt16(total).bigEndian) { Data($0) })
+                fragPayload.append(packet.type)
+                fragPayload.append(fragment)
+
+                let fragmentRecipient: Data? = recipientData
+                let fragmentPacket = BitchatPacket(
+                    type: MessageType.fragment.rawValue,
+                    senderID: packet.senderID,
+                    recipientID: fragmentRecipient,
+                    timestamp: packet.timestamp,
+                    payload: fragPayload,
+                    signature: nil,
+                    ttl: packet.ttl
+                )
+                let perFragMs = (recipientData != nil) ? TransportConfig.bleFragmentSpacingDirectedMs : TransportConfig.bleFragmentSpacingMs
+                let delayMs = index * perFragMs
+
+                // Emit progress to UI just before scheduling send
+                notifyUI { [weak self] in
+                    self?.delegate?.didUpdateMessageDeliveryStatus(messageID, status: .partiallyDelivered(reached: index, total: total))
+                }
+
+                messageQueue.asyncAfter(deadline: .now() + .milliseconds(delayMs)) { [weak self] in
+                    self?.broadcastPacket(fragmentPacket)
+                    if index == total - 1 {
+                        self?.notifyUI { [weak self] in
+                            self?.delegate?.didUpdateMessageDeliveryStatus(messageID, status: .sent)
+                        }
+                    }
+                }
+            }
+        } else {
+            // Single packet path
+            broadcastPacket(packet)
+            notifyUI { [weak self] in
+                self?.delegate?.didUpdateMessageDeliveryStatus(messageID, status: .sent)
+            }
+        }
+    }
     
     private func handleFragment(_ packet: BitchatPacket, from peerID: String) {
         // Don't process our own fragments
@@ -1418,6 +1530,9 @@ final class BLEService: NSObject {
             
         case .fragment:
             handleFragment(packet, from: senderID)
+        
+        case .fileTransfer:
+            handleFileTransfer(packet, from: senderID)
             
         case .leave:
             handleLeave(packet, from: senderID)
@@ -1458,6 +1573,64 @@ final class BLEService: NSObject {
                 self?.scheduledRelays[messageID] = work
             }
             messageQueue.asyncAfter(deadline: .now() + .milliseconds(decision.delayMs), execute: work)
+        }
+    }
+
+    private func handleFileTransfer(_ packet: BitchatPacket, from peerID: String) {
+        // Decode TLV
+        guard let file = BitchatFilePacket.decode(from: packet.payload) else {
+            SecureLogger.error("❌ Failed to decode file TLV from \(peerID)", category: .session)
+            return
+        }
+        // Persist to app files in type-specific folder
+        let isAudio = file.mimeType.lowercased().hasPrefix("audio/")
+        let subfolder = isAudio ? "voicenotes/incoming" : "images/incoming"
+        let ext: String = {
+            if let inferred = file.fileName.split(separator: ".").last { return String(inferred) }
+            if isAudio { return "m4a" }
+            return "bin"
+        }()
+        let unique = "\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).\(ext)"
+        guard let savedURL = saveToAppFiles(subpath: subfolder, fileName: unique, data: file.content) else { return }
+
+        // Build synthetic message
+        let nickname = peerNickname(peerID: peerID) ?? "user"
+        let ts = Date(timeIntervalSince1970: TimeInterval(packet.timestamp) / 1000.0)
+        let marker = isAudio ? "[voice]" : "[image]"
+        let content = "\(marker) \(savedURL.path)"
+
+        let message = BitchatMessage(
+            id: UUID().uuidString,
+            sender: nickname,
+            content: content,
+            timestamp: ts,
+            isRelay: false,
+            originalSender: nil,
+            isPrivate: packet.recipientID != nil,
+            recipientNickname: nil,
+            senderPeerID: peerID,
+            mentions: nil,
+            deliveryStatus: nil
+        )
+        notifyUI { [weak self] in
+            self?.delegate?.didReceiveMessage(message)
+        }
+    }
+
+    private func saveToAppFiles(subpath: String, fileName: String, data: Data) -> URL? {
+        do {
+            let fm = FileManager.default
+            let base = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            let folder = base.appendingPathComponent("bitchat_\(subpath)", isDirectory: true)
+            if !fm.fileExists(atPath: folder.path) {
+                try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            }
+            let url = folder.appendingPathComponent(fileName)
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            SecureLogger.error("❌ Failed to save incoming file: \(error)", category: .session)
+            return nil
         }
     }
     

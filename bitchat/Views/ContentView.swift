@@ -57,6 +57,10 @@ struct ContentView: View {
     // Window sizes for rendering (infinite scroll up)
     @State private var windowCountPublic: Int = 300
     @State private var windowCountPrivate: [String: Int] = [:]
+    #if os(iOS)
+    @State private var voiceRecorder = VoiceRecorder()
+    @State private var isRecordingVoice = false
+    #endif
     
     // MARK: - Computed Properties
     
@@ -305,19 +309,43 @@ struct ContentView: View {
                                     // Precompute heavy token scans once per row
                                     let cashuTokens = message.content.extractCashuTokens()
                                     let lightningLinks = message.content.extractLightningLinks()
-                                    HStack(alignment: .top, spacing: 0) {
-                                        let isLong = (message.content.count > TransportConfig.uiLongMessageLengthThreshold || message.content.hasVeryLongToken(threshold: TransportConfig.uiVeryLongTokenThreshold)) && cashuTokens.isEmpty
-                                        let isExpanded = expandedMessageIDs.contains(message.id)
-                                        Text(viewModel.formatMessageAsText(message, colorScheme: colorScheme))
-                                            .fixedSize(horizontal: false, vertical: true)
-                                            .lineLimit(isLong && !isExpanded ? TransportConfig.uiLongMessageLineLimit : nil)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                        
-                                        // Delivery status indicator for private messages
+                                    let isVoice = message.content.hasPrefix("[voice] ")
+                                    if isVoice {
+                                        // Hide the raw marker text; render custom voice view
+                                        HStack(alignment: .center, spacing: 8) {
+                                            let path = String(message.content.dropFirst("[voice] ".count))
+                                            let prog: Double? = {
+                                                if let st = message.deliveryStatus {
+                                                    if case .partiallyDelivered(let r, let t) = st, t > 0 {
+                                                        return min(1.0, max(0.0, Double(r) / Double(t)))
+                                                    }
+                                                }
+                                                return nil
+                                            }()
+                                            VoiceMessageRow(fileURL: URL(fileURLWithPath: path), sendProgress: prog)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        // Delivery status for our own private voice messages
                                         if message.isPrivate && message.sender == viewModel.nickname,
                                            let status = message.deliveryStatus {
                                             DeliveryStatusView(status: status, colorScheme: colorScheme)
                                                 .padding(.leading, 4)
+                                        }
+                                    } else {
+                                        HStack(alignment: .top, spacing: 0) {
+                                            let isLong = (message.content.count > TransportConfig.uiLongMessageLengthThreshold || message.content.hasVeryLongToken(threshold: TransportConfig.uiVeryLongTokenThreshold)) && cashuTokens.isEmpty
+                                            let isExpanded = expandedMessageIDs.contains(message.id)
+                                            Text(viewModel.formatMessageAsText(message, colorScheme: colorScheme))
+                                                .fixedSize(horizontal: false, vertical: true)
+                                                .lineLimit(isLong && !isExpanded ? TransportConfig.uiLongMessageLineLimit : nil)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                            
+                                            // Delivery status indicator for private messages
+                                            if message.isPrivate && message.sender == viewModel.nickname,
+                                               let status = message.deliveryStatus {
+                                                DeliveryStatusView(status: status, colorScheme: colorScheme)
+                                                    .padding(.leading, 4)
+                                            }
                                         }
                                     }
                                     
@@ -870,17 +898,69 @@ struct ContentView: View {
                     sendMessage()
                 }
             
-            Button(action: sendMessage) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(messageText.isEmpty ? Color.gray :
-                                            viewModel.selectedPrivateChatPeer != nil
-                                             ? Color.orange : textColor)
+            Group {
+                if messageText.isEmpty {
+                    #if os(iOS)
+                    Image(systemName: isRecordingVoice ? "mic.circle.fill" : "mic.circle")
+                        .font(.system(size: 22))
+                        .foregroundColor(isRecordingVoice ? .red : (viewModel.selectedPrivateChatPeer != nil ? Color.orange : textColor))
+                        .padding(.trailing, 12)
+                        .gesture(
+                            LongPressGesture(minimumDuration: 0.2)
+                                .onChanged { _ in
+                                    if !isRecordingVoice {
+                                        do {
+                                            let url = try VoiceRecorderPaths.outgoingURL()
+                                            try voiceRecorder.startRecording(to: url)
+                                            isRecordingVoice = true
+                                        } catch {
+                                            isRecordingVoice = false
+                                        }
+                                    }
+                                }
+                                .onEnded { _ in
+                                    voiceRecorder.stopRecording {
+                                        isRecordingVoice = false
+                                        // Send the most recent recorded file
+                                        do {
+                                            let fm = FileManager.default
+                                            let base = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                                            let folder = base.appendingPathComponent("bitchat_voicenotes/outgoing", isDirectory: true)
+                                            let files = try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles])
+                                            let latest = files.sorted { (a, b) -> Bool in
+                                                let ad = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                                                let bd = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                                                return ad > bd
+                                            }.first
+                                            if let u = latest { viewModel.sendVoiceNote(fileURL: u) }
+                                        } catch {
+                                            // ignore
+                                        }
+                                    }
+                                }
+                        )
+                    #else
+                    // Non-iOS: keep send button placeholder
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(Color.gray)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 12)
+                    #endif
+                } else {
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(viewModel.selectedPrivateChatPeer != nil ? Color.orange : textColor)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 12)
+                    .accessibilityLabel("Send message")
+                    .accessibilityHint("Double tap to send")
+                }
             }
-            .buttonStyle(.plain)
-            .padding(.trailing, 12)
-            .accessibilityLabel("Send message")
-            .accessibilityHint(messageText.isEmpty ? "Enter a message to send" : "Double tap to send")
             }
             .padding(.vertical, 8)
             .background(backgroundColor.opacity(0.95))
