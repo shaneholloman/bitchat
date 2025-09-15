@@ -1291,6 +1291,14 @@ final class BLEService: NSObject {
             signature: nil,
             ttl: messageTTL
         )
+        // Log debug info about the file TLV
+        if let fp = BitchatFilePacket.decode(from: payload) {
+            let sha = fp.content.sha256Hex()
+            let scope = (recipientData == nil || recipientData == Data(repeating: 0xFF, count: 8)) ? "broadcast" : "private"
+            SecureLogger.debug("📤 FILE_TRANSFER send (\(scope)) name=\(fp.fileName) mime=\(fp.mimeType) size=\(fp.fileSize) sha256=\(sha)", category: .session)
+        } else {
+            SecureLogger.warning("⚠️ FILE_TRANSFER send: failed to decode TLV for logging (payload=\(payload.count) bytes)", category: .session)
+        }
         // For private sends, sign (integrity)
         if recipientData != nil {
             if let signed = noiseService.signPacket(packet) { packet = signed }
@@ -1582,6 +1590,9 @@ final class BLEService: NSObject {
             SecureLogger.error("❌ Failed to decode file TLV from \(peerID)", category: .session)
             return
         }
+        let sha = file.content.sha256Hex()
+        let scope = (packet.recipientID == nil || packet.recipientID == Data(repeating: 0xFF, count: 8)) ? "broadcast" : "private"
+        SecureLogger.debug("📥 FILE_TRANSFER recv (\(scope)) from=\(peerID.prefix(8))… name=\(file.fileName) mime=\(file.mimeType) size=\(file.fileSize) sha256=\(sha)", category: .session)
         // Determine if this is a true direct message; Android may use 0xFF..FF to denote broadcast
         let isBroadcastRecipient: Bool = {
             guard let rid = packet.recipientID else { return true }
