@@ -1582,6 +1582,11 @@ final class BLEService: NSObject {
             SecureLogger.error("❌ Failed to decode file TLV from \(peerID)", category: .session)
             return
         }
+        // Determine if this is a true direct message; Android may use 0xFF..FF to denote broadcast
+        let isBroadcastRecipient: Bool = {
+            guard let rid = packet.recipientID else { return true }
+            return rid == Data(repeating: 0xFF, count: 8)
+        }()
         // Persist to app files in type-specific folder
         let isAudio = file.mimeType.lowercased().hasPrefix("audio/")
         let subfolder = isAudio ? "voicenotes/incoming" : "images/incoming"
@@ -1606,7 +1611,7 @@ final class BLEService: NSObject {
             timestamp: ts,
             isRelay: false,
             originalSender: nil,
-            isPrivate: packet.recipientID != nil,
+            isPrivate: (packet.recipientID != nil) && !isBroadcastRecipient,
             recipientNickname: nil,
             senderPeerID: peerID,
             mentions: nil,

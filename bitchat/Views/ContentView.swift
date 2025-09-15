@@ -905,8 +905,8 @@ struct ContentView: View {
                         .font(.system(size: 22))
                         .foregroundColor(isRecordingVoice ? .red : (viewModel.selectedPrivateChatPeer != nil ? Color.orange : textColor))
                         .padding(.trailing, 12)
-                        .gesture(
-                            LongPressGesture(minimumDuration: 0.2)
+                        .highPriorityGesture(
+                            DragGesture(minimumDistance: 0)
                                 .onChanged { _ in
                                     if !isRecordingVoice {
                                         do {
@@ -940,14 +940,14 @@ struct ContentView: View {
                                 }
                         )
                     #else
-                    // Non-iOS: keep send button placeholder
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(Color.gray)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 12)
+                        // Non-iOS: keep send button placeholder
+                        Button(action: sendMessage) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(Color.gray)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 12)
                     #endif
                 } else {
                     Button(action: sendMessage) {

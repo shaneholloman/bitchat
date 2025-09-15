@@ -168,7 +168,7 @@ struct BinaryProtocol {
         
         // Payload length (2 bytes, big-endian) - includes original size if compressed
         let payloadDataSize = payload.count + (isCompressed ? 2 : 0)
-        let payloadLength = UInt16(payloadDataSize)
+        let payloadLength = UInt32(payloadDataSize)
         
         
         data.append(UInt8((payloadLength >> 8) & 0xFF))
