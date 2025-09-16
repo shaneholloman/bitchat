@@ -913,70 +913,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
             count: TransportConfig.nostrGeoRelayCount
         )
         NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: subRelays) { [weak self] event in
-            guard let self = self else { return }
-            guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue else { return }
-            if self.processedNostrEvents.contains(event.id) { return }
-            self.processedNostrEvents.insert(event.id)
-            if let gh = self.currentGeohash,
-               let myGeoIdentity = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh),
-               myGeoIdentity.publicKeyHex.lowercased() == event.pubkey.lowercased() {
-                // Skip very recent self-echo from relay, but allow older events (e.g., after app restart)
-                let eventTime = Date(timeIntervalSince1970: TimeInterval(event.created_at))
-                if Date().timeIntervalSince(eventTime) < 15 { return }
-            }
-            if let nickTag = event.tags.first(where: { $0.first == "n" }), nickTag.count >= 2 {
-                let nick = nickTag[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                self.geoNicknames[event.pubkey.lowercased()] = nick
-            }
-            // Store mapping for geohash sender IDs used in messages (ensures consistent colors)
-            let key16 = "nostr_" + String(event.pubkey.prefix(TransportConfig.nostrConvKeyPrefixLength))
-            self.nostrKeyMapping[key16] = event.pubkey
-            let key8 = "nostr:" + String(event.pubkey.prefix(TransportConfig.nostrShortKeyDisplayLength))
-            self.nostrKeyMapping[key8] = event.pubkey
-
-            // Update participants last-seen for this pubkey
-            self.recordGeoParticipant(pubkeyHex: event.pubkey)
-            
-            // Track teleported tag (only our format ["t","teleport"]) for icon state
-            let hasTeleportTag = event.tags.contains(where: { tag in
-                tag.count >= 2 && tag[0].lowercased() == "t" && tag[1].lowercased() == "teleport"
-            })
-            if hasTeleportTag {
-                let key = event.pubkey.lowercased()
-                // Do not mark our own key from historical events; rely on manager.teleported for self
-                let isSelf: Bool = {
-                    if let gh = self.currentGeohash, let my = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh) {
-                        return my.publicKeyHex.lowercased() == key
-                    }
-                    return false
-                }()
-                if !isSelf {
-                    Task { @MainActor in self.teleportedGeo = self.teleportedGeo.union([key]) }
-                }
-            }
-            let senderName = self.displayNameForNostrPubkey(event.pubkey)
-            let content = event.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Clamp future timestamps to now to avoid future-dated messages skewing order
-            let rawTs = Date(timeIntervalSince1970: TimeInterval(event.created_at))
-            let timestamp = min(rawTs, Date())
-            let mentions = self.parseMentions(from: content)
-            let msg = BitchatMessage(
-                id: event.id,
-                sender: senderName,
-                content: content,
-                timestamp: timestamp,
-                isRelay: false,
-                originalSender: nil,
-                isPrivate: false,
-                recipientNickname: nil,
-                senderPeerID: "nostr:\(event.pubkey.prefix(TransportConfig.nostrShortKeyDisplayLength))",
-                mentions: mentions.isEmpty ? nil : mentions
-            )
-            Task { @MainActor in
-                self.handlePublicMessage(msg)
-                self.checkForMentions(msg)
-                self.sendHapticFeedback(for: msg)
-            }
+            self?.subscribeNostrEvent(event)
         }
         // Resubscribe geohash DMs for this identity
         if let dmSub = geoDmSubscriptionID { NostrRelayManager.shared.unsubscribe(id: dmSub); geoDmSubscriptionID = nil }
@@ -1084,6 +1021,83 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                 }
             }
         } catch { }
+    }
+    
+    private func subscribeNostrEvent(_ event: NostrEvent) {
+        guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue,
+              !processedNostrEvents.contains(event.id)
+        else {
+            return
+        }
+
+        processedNostrEvents.insert(event.id)
+        
+        if let gh = currentGeohash,
+           let myGeoIdentity = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh),
+           myGeoIdentity.publicKeyHex.lowercased() == event.pubkey.lowercased() {
+            // Skip very recent self-echo from relay, but allow older events (e.g., after app restart)
+            let eventTime = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+            if Date().timeIntervalSince(eventTime) < 15 {
+                return
+            }
+        }
+        
+        if let nickTag = event.tags.first(where: { $0.first == "n" }), nickTag.count >= 2 {
+            let nick = nickTag[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            geoNicknames[event.pubkey.lowercased()] = nick
+        }
+        
+        // Store mapping for geohash sender IDs used in messages (ensures consistent colors)
+        let key16 = "nostr_" + String(event.pubkey.prefix(TransportConfig.nostrConvKeyPrefixLength))
+        nostrKeyMapping[key16] = event.pubkey
+        let key8 = "nostr:" + String(event.pubkey.prefix(TransportConfig.nostrShortKeyDisplayLength))
+        nostrKeyMapping[key8] = event.pubkey
+
+        // Update participants last-seen for this pubkey
+        recordGeoParticipant(pubkeyHex: event.pubkey)
+        
+        // Track teleported tag (only our format ["t","teleport"]) for icon state
+        let hasTeleportTag = event.tags.contains(where: { tag in
+            tag.count >= 2 && tag[0].lowercased() == "t" && tag[1].lowercased() == "teleport"
+        })
+        
+        if hasTeleportTag {
+            let key = event.pubkey.lowercased()
+            // Do not mark our own key from historical events; rely on manager.teleported for self
+            let isSelf: Bool = {
+                if let gh = currentGeohash, let my = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh) {
+                    return my.publicKeyHex.lowercased() == key
+                }
+                return false
+            }()
+            if !isSelf {
+                Task { @MainActor in
+                    teleportedGeo = teleportedGeo.union([key])
+                }
+            }
+        }
+        
+        let senderName = displayNameForNostrPubkey(event.pubkey)
+        let content = event.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Clamp future timestamps to now to avoid future-dated messages skewing order
+        let rawTs = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+        let timestamp = min(rawTs, Date())
+        let mentions = parseMentions(from: content)
+        let msg = BitchatMessage(
+            id: event.id,
+            sender: senderName,
+            content: content,
+            timestamp: timestamp,
+            isRelay: false,
+            senderPeerID: "nostr:\(event.pubkey.prefix(TransportConfig.nostrShortKeyDisplayLength))",
+            mentions: mentions.isEmpty ? nil : mentions
+        )
+        Task { @MainActor in
+            handlePublicMessage(msg)
+            checkForMentions(msg)
+            sendHapticFeedback(for: msg)
+        }
     }
 
     // MARK: - Nickname Management
