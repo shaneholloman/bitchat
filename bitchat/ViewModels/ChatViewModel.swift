@@ -2042,95 +2042,110 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         let toAdd = desired.subtracting(current)
         let toRemove = current.subtracting(desired)
 
-        //
         for (subID, gh) in geoSamplingSubs where toRemove.contains(gh) {
             NostrRelayManager.shared.unsubscribe(id: subID)
             geoSamplingSubs.removeValue(forKey: subID)
         }
 
-        // Subscribe new
         for gh in toAdd {
-            let subID = "geo-sample-\(gh)"
-            geoSamplingSubs[subID] = gh
-            let filter = NostrFilter.geohashEphemeral(
-                gh,
-                since: Date().addingTimeInterval(-TransportConfig.nostrGeohashSampleLookbackSeconds),
-                limit: TransportConfig.nostrGeohashSampleLimit
+            subscribe(gh)
+        }
+    }
+    
+    @MainActor
+    private func subscribe(_ gh: String) {
+        let subID = "geo-sample-\(gh)"
+        geoSamplingSubs[subID] = gh
+        let filter = NostrFilter.geohashEphemeral(
+            gh,
+            since: Date().addingTimeInterval(-TransportConfig.nostrGeohashSampleLookbackSeconds),
+            limit: TransportConfig.nostrGeohashSampleLimit
+        )
+        let subRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: gh, count: 5)
+        NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: subRelays) { [weak self] event in
+            self?.subscribeNostrEvent(event, gh: gh)
+        }
+    }
+    
+    private func subscribeNostrEvent(_ event: NostrEvent, gh: String) {
+        guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue else { return }
+        
+        // Compute current participant count (5-minute window) BEFORE updating with this event
+        let cutoff = Date().addingTimeInterval(-TransportConfig.uiRecentCutoffFiveMinutesSeconds)
+        let existingCount = geoParticipants[gh]?.values.filter { $0 >= cutoff }.count ?? 0
+        
+        // Update participants for this specific geohash
+        recordGeoParticipant(pubkeyHex: event.pubkey, geohash: gh)
+        
+        // Notify only on rising-edge: previously zero people, now someone sends a chat
+        let content = event.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+        
+        // Respect geohash blocks
+        if identityManager.isNostrBlocked(pubkeyHexLowercased: event.pubkey.lowercased()) { return }
+        
+        // Skip self identity for this geohash
+        if let my = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh), my.publicKeyHex.lowercased() == event.pubkey.lowercased() { return }
+        
+        // Only trigger when there were zero participants in this geohash recently
+        guard existingCount == 0 else { return }
+        
+        // Avoid notifications for old sampled events when launching or (re)subscribing
+        let eventTime = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+        if Date().timeIntervalSince(eventTime) > 30 { return }
+        
+        // Foreground-only notifications: app must be active, and not already viewing this geohash
+        #if os(iOS)
+        guard UIApplication.shared.applicationState == .active else { return }
+        if case .location(let ch) = activeChannel, ch.geohash == gh { return }
+        #elseif os(macOS)
+        guard NSApplication.shared.isActive else { return }
+        if case .location(let ch) = activeChannel, ch.geohash == gh { return }
+        #endif
+        
+        cooldownPerGeohash(gh, content: content, event: event)
+    }
+    
+    private func cooldownPerGeohash(_ gh: String, content: String, event: NostrEvent) {
+        let now = Date()
+        let last = lastGeoNotificationAt[gh] ?? .distantPast
+        if now.timeIntervalSince(last) < TransportConfig.uiGeoNotifyCooldownSeconds { return }
+        
+        // Compose a short preview
+        let preview: String = {
+            let maxLen = TransportConfig.uiGeoNotifySnippetMaxLen
+            if content.count <= maxLen { return content }
+            let idx = content.index(content.startIndex, offsetBy: maxLen)
+            return String(content[..<idx]) + "…"
+        }()
+
+        Task { @MainActor in
+            lastGeoNotificationAt[gh] = now
+            // Pre-populate the target geohash timeline so the triggering message appears when user opens it
+            var arr = geoTimelines[gh] ?? []
+            let senderSuffix = String(event.pubkey.suffix(4))
+            let nick = geoNicknames[event.pubkey.lowercased()]
+            let senderName = (nick?.isEmpty == false ? nick! : "anon") + "#" + senderSuffix
+            
+            // Clamp future timestamps
+            let rawTs = Date(timeIntervalSince1970: TimeInterval(event.created_at))
+            let ts = min(rawTs, Date())
+            let mentions = self.parseMentions(from: content)
+            let msg = BitchatMessage(
+                id: event.id,
+                sender: senderName,
+                content: content,
+                timestamp: ts,
+                isRelay: false,
+                senderPeerID: "nostr:\(event.pubkey.prefix(TransportConfig.nostrShortKeyDisplayLength))",
+                mentions: mentions.isEmpty ? nil : mentions
             )
-            let subRelays = GeoRelayDirectory.shared.closestRelays(toGeohash: gh, count: 5)
-            NostrRelayManager.shared.subscribe(filter: filter, id: subID, relayUrls: subRelays) { [weak self] event in
-                guard let self = self else { return }
-                guard event.kind == NostrProtocol.EventKind.ephemeralEvent.rawValue else { return }
-                // Compute current participant count (5-minute window) BEFORE updating with this event
-                let cutoff = Date().addingTimeInterval(-TransportConfig.uiRecentCutoffFiveMinutesSeconds)
-                let existingCount: Int = {
-                    let map = self.geoParticipants[gh] ?? [:]
-                    return map.values.filter { $0 >= cutoff }.count
-                }()
-                // Update participants for this specific geohash
-                self.recordGeoParticipant(pubkeyHex: event.pubkey, geohash: gh)
-                // Notify only on rising-edge: previously zero people, now someone sends a chat
-                let content = event.content.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !content.isEmpty else { return }
-                // Respect geohash blocks
-                if identityManager.isNostrBlocked(pubkeyHexLowercased: event.pubkey.lowercased()) { return }
-                // Skip self identity for this geohash
-                if let my = try? NostrIdentityBridge.deriveIdentity(forGeohash: gh), my.publicKeyHex.lowercased() == event.pubkey.lowercased() { return }
-                // Only trigger when there were zero participants in this geohash recently
-                guard existingCount == 0 else { return }
-                // Avoid notifications for old sampled events when launching or (re)subscribing
-                let eventTime = Date(timeIntervalSince1970: TimeInterval(event.created_at))
-                if Date().timeIntervalSince(eventTime) > 30 { return }
-                // Foreground-only notifications: app must be active, and not already viewing this geohash
-                #if os(iOS)
-                guard UIApplication.shared.applicationState == .active else { return }
-                if case .location(let ch) = self.activeChannel, ch.geohash == gh { return }
-                #elseif os(macOS)
-                guard NSApplication.shared.isActive else { return }
-                if case .location(let ch) = self.activeChannel, ch.geohash == gh { return }
-                #endif
-                // Cooldown per geohash
-                let now = Date()
-                let last = self.lastGeoNotificationAt[gh] ?? .distantPast
-                if now.timeIntervalSince(last) < TransportConfig.uiGeoNotifyCooldownSeconds { return }
-                // Compose a short preview
-                let preview: String = {
-                    let maxLen = TransportConfig.uiGeoNotifySnippetMaxLen
-                    if content.count <= maxLen { return content }
-                    let idx = content.index(content.startIndex, offsetBy: maxLen)
-                    return String(content[..<idx]) + "…"
-                }()
-                Task { @MainActor in
-                    self.lastGeoNotificationAt[gh] = now
-                    // Pre-populate the target geohash timeline so the triggering message appears when user opens it
-                    var arr = self.geoTimelines[gh] ?? []
-                    let senderSuffix = String(event.pubkey.suffix(4))
-                    let nick = self.geoNicknames[event.pubkey.lowercased()]
-                    let senderName = (nick?.isEmpty == false ? nick! : "anon") + "#" + senderSuffix
-                    // Clamp future timestamps
-                    let rawTs = Date(timeIntervalSince1970: TimeInterval(event.created_at))
-                    let ts = min(rawTs, Date())
-                    let mentions = self.parseMentions(from: content)
-                    let msg = BitchatMessage(
-                        id: event.id,
-                        sender: senderName,
-                        content: content,
-                        timestamp: ts,
-                        isRelay: false,
-                        originalSender: nil,
-                        isPrivate: false,
-                        recipientNickname: nil,
-                        senderPeerID: "nostr:\(event.pubkey.prefix(TransportConfig.nostrShortKeyDisplayLength))",
-                        mentions: mentions.isEmpty ? nil : mentions
-                    )
-                    if !arr.contains(where: { $0.id == msg.id }) {
-                        arr.append(msg)
-                        if arr.count > self.geoTimelineCap { arr = Array(arr.suffix(self.geoTimelineCap)) }
-                        self.geoTimelines[gh] = arr
-                    }
-                    NotificationService.shared.sendGeohashActivityNotification(geohash: gh, bodyPreview: preview)
-                }
+            if !arr.contains(where: { $0.id == msg.id }) {
+                arr.append(msg)
+                if arr.count > geoTimelineCap { arr = Array(arr.suffix(geoTimelineCap)) }
+                geoTimelines[gh] = arr
             }
+            NotificationService.shared.sendGeohashActivityNotification(geohash: gh, bodyPreview: preview)
         }
     }
 
