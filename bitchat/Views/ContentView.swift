@@ -9,6 +9,10 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
+#if os(iOS)
+import PhotosUI
+#endif
+
 #endif
 
 // MARK: - Supporting Types
@@ -60,6 +64,7 @@ struct ContentView: View {
     #if os(iOS)
     @State private var voiceRecorder = VoiceRecorder()
     @State private var isRecordingVoice = false
+    @State private var isShowingImagePicker = false
     #endif
     
     // MARK: - Computed Properties
@@ -256,6 +261,16 @@ struct ContentView: View {
             scrollThrottleTimer?.invalidate()
             autocompleteDebounceTimer?.invalidate()
         }
+        #if os(iOS)
+        .sheet(isPresented: $isShowingImagePicker) {
+            ImagePickerView { image in
+                if let img = image {
+                    viewModel.sendImage(img)
+                }
+                isShowingImagePicker = false
+            }
+        }
+        #endif
     }
     
     // MARK: - Message List View
@@ -310,6 +325,8 @@ struct ContentView: View {
                                     let cashuTokens = message.content.extractCashuTokens()
                                     let lightningLinks = message.content.extractLightningLinks()
                                     let isVoice = message.content.hasPrefix("[voice] ")
+                                    let isImage = message.content.hasPrefix("[image] ")
+                                    
                                     if isVoice {
                                         // Hide the raw marker text; render custom voice view
                                         HStack(alignment: .center, spacing: 8) {
@@ -331,6 +348,41 @@ struct ContentView: View {
                                             DeliveryStatusView(status: status, colorScheme: colorScheme)
                                                 .padding(.leading, 4)
                                         }
+                                    } else if isImage {
+                                        // Hide the raw marker text; render image view
+                                        let path = String(message.content.dropFirst("[image] ".count))
+                                        #if os(iOS)
+                                        if let uiImage = UIImage(contentsOfFile: path) {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                // Image with rounded corners and left alignment
+                                                Image(uiImage: uiImage)
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: .fit)
+                                                    .frame(maxWidth: 200, maxHeight: 200)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                                    .shadow(radius: 2)
+                                                
+                                                // Delivery status for our own private images
+                                                if message.isPrivate && message.sender == viewModel.nickname,
+                                                   let status = message.deliveryStatus {
+                                                    DeliveryStatusView(status: status, colorScheme: colorScheme)
+                                                }
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        } else {
+                                            // Fallback for invalid image files
+                                            Text("⚠️ Image unavailable")
+                                                .font(.system(size: 14, design: .monospaced))
+                                                .foregroundColor(.secondary)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                        #else
+                                        // macOS: show path for now since NSImage loading is different
+                                        Text("📷 Image: \(path)")
+                                            .font(.system(size: 14, design: .monospaced))
+                                            .foregroundColor(textColor)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        #endif
                                     } else {
                                         HStack(alignment: .top, spacing: 0) {
                                             let isLong = (message.content.count > TransportConfig.uiLongMessageLengthThreshold || message.content.hasVeryLongToken(threshold: TransportConfig.uiVeryLongTokenThreshold)) && cashuTokens.isEmpty
@@ -901,44 +953,55 @@ struct ContentView: View {
             Group {
                 if messageText.isEmpty {
                     #if os(iOS)
-                    Image(systemName: isRecordingVoice ? "mic.circle.fill" : "mic.circle")
-                        .font(.system(size: 22))
-                        .foregroundColor(isRecordingVoice ? .red : (viewModel.selectedPrivateChatPeer != nil ? Color.orange : textColor))
-                        .padding(.trailing, 12)
-                        .highPriorityGesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { _ in
-                                    if !isRecordingVoice {
-                                        do {
-                                            let url = try VoiceRecorderPaths.outgoingURL()
-                                            try voiceRecorder.startRecording(to: url)
-                                            isRecordingVoice = true
-                                        } catch {
+                    HStack(spacing: 8) {
+                        // Plus button for image picker (to the left of mic)
+                        Button(action: { showImagePicker() }) {
+                            Image(systemName: "plus.circle")
+                                .font(.system(size: 22))
+                                .foregroundColor(viewModel.selectedPrivateChatPeer != nil ? Color.orange : textColor)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Add media")
+
+                        Image(systemName: isRecordingVoice ? "mic.circle.fill" : "mic.circle")
+                            .font(.system(size: 22))
+                            .foregroundColor(isRecordingVoice ? .red : (viewModel.selectedPrivateChatPeer != nil ? Color.orange : textColor))
+                            .highPriorityGesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { _ in
+                                        if !isRecordingVoice {
+                                            do {
+                                                let url = try VoiceRecorderPaths.outgoingURL()
+                                                try voiceRecorder.startRecording(to: url)
+                                                isRecordingVoice = true
+                                            } catch {
+                                                isRecordingVoice = false
+                                            }
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        voiceRecorder.stopRecording {
                                             isRecordingVoice = false
+                                            // Send the most recent recorded file
+                                            do {
+                                                let fm = FileManager.default
+                                                let base = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                                                let folder = base.appendingPathComponent("bitchat_voicenotes/outgoing", isDirectory: true)
+                                                let files = try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles])
+                                                let latest = files.sorted { (a, b) -> Bool in
+                                                    let ad = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                                                    let bd = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                                                    return ad > bd
+                                                }.first
+                                                if let u = latest { viewModel.sendVoiceNote(fileURL: u) }
+                                            } catch {
+                                                // ignore
+                                            }
                                         }
                                     }
-                                }
-                                .onEnded { _ in
-                                    voiceRecorder.stopRecording {
-                                        isRecordingVoice = false
-                                        // Send the most recent recorded file
-                                        do {
-                                            let fm = FileManager.default
-                                            let base = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-                                            let folder = base.appendingPathComponent("bitchat_voicenotes/outgoing", isDirectory: true)
-                                            let files = try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles])
-                                            let latest = files.sorted { (a, b) -> Bool in
-                                                let ad = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                                                let bd = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                                                return ad > bd
-                                            }.first
-                                            if let u = latest { viewModel.sendVoiceNote(fileURL: u) }
-                                        } catch {
-                                            // ignore
-                                        }
-                                    }
-                                }
-                        )
+                            )
+                    }
+                    .padding(.trailing, 12)
                     #else
                         // Non-iOS: keep send button placeholder
                         Button(action: sendMessage) {
@@ -979,6 +1042,12 @@ struct ContentView: View {
         viewModel.sendMessage(messageText)
         messageText = ""
     }
+    
+    #if os(iOS)
+    private func showImagePicker() {
+        isShowingImagePicker = true
+    }
+    #endif
     
     // MARK: - Sidebar View
     
