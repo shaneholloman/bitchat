@@ -23,17 +23,21 @@ struct VoiceMessageRow: View {
                     // Base waveform
                     HStack(spacing: 2) {
                         ForEach(Array(bins.enumerated()), id: \.offset) { _, v in
-                            let h = max(2, CGFloat(v) * geo.size.height)
+                            // Apply logarithmic normalization for better visibility of quiet recordings
+                            let normalizedV = v <= 0 ? 0 : min(1.0, log(1.0 + v * 9.0) / log(10.0))
+                            let h = max(2, CGFloat(normalizedV) * geo.size.height)
                             Capsule().fill(Color.gray.opacity(0.4)).frame(width: 2, height: h)
                         }
                     }
-                    // Filled progress
+                    // Filled progress (with normalized amplitude)
                     let activeProgress = sendProgress ?? progress
                     let filled = Int(Double(bins.count) * activeProgress)
                     HStack(spacing: 2) {
                         ForEach(0..<max(0, min(bins.count, filled)), id: \.self) { i in
                             let v = bins[i]
-                            let h = max(2, CGFloat(v) * geo.size.height)
+                            // Apply logarithmic normalization for better visibility of quiet recordings
+                            let normalizedV = v <= 0 ? 0 : min(1.0, log(1.0 + v * 9.0) / log(10.0))
+                            let h = max(2, CGFloat(normalizedV) * geo.size.height)
                             Capsule().fill(Color.blue).frame(width: 2, height: h)
                         }
                         Spacer(minLength: 0)
