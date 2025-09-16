@@ -1283,6 +1283,7 @@ final class BLEService: NSObject {
         // Build packet
         let recipientData: Data? = recipientPeerID.flatMap { Data(hexString: $0) }
         var packet = BitchatPacket(
+            version: 2,  // FILE_TRANSFER uses v2 for 4-byte payload length to support large files
             type: MessageType.fileTransfer.rawValue,
             senderID: myPeerIDData,
             recipientID: recipientData,

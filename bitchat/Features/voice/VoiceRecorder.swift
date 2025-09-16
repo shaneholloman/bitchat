@@ -1,4 +1,6 @@
 import Foundation
+
+#if os(iOS)
 import AVFoundation
 
 final class VoiceRecorder: NSObject, AVAudioRecorderDelegate {
@@ -48,4 +50,20 @@ enum VoiceRecorderPaths {
         return folder.appendingPathComponent(name)
     }
 }
+#else
+/// Minimal macOS-compatible stubs so the macOS target builds without AVFAudio.
+final class VoiceRecorder: NSObject {
+    private(set) var isRecording = false
+    func startRecording(to url: URL) throws {
+        // Voice recording is iOS-only in this project
+        throw NSError(domain: "VoiceRecorder", code: -1, userInfo: [NSLocalizedDescriptionKey: "Voice recording is not supported on macOS in this build."])
+    }
+    func stopRecording(completion: @escaping () -> Void) { completion() }
+}
 
+enum VoiceRecorderPaths {
+    static func outgoingURL() throws -> URL {
+        throw NSError(domain: "VoiceRecorder", code: -2, userInfo: [NSLocalizedDescriptionKey: "Voice recording is not supported on macOS in this build."])
+    }
+}
+#endif
