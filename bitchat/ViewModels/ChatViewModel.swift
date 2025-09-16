@@ -1464,22 +1464,21 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         // Force immediate UI update for user's own messages
         objectWillChange.send()
 
-        // Update channel activity time on send
+        updateChannelActivityTimeThenSend(content: content, trimmed: trimmed, mentions: mentions)
+    }
+    
+    private func updateChannelActivityTimeThenSend(content: String, trimmed: String, mentions: [String]) {
         switch activeChannel {
         case .mesh:
             lastPublicActivityAt["mesh"] = Date()
+            // Send via mesh with mentions
+            meshService.sendMessage(content, mentions: mentions)
         case .location(let ch):
             lastPublicActivityAt["geo:\(ch.geohash)"] = Date()
-        }
-        
-        if case .location(let ch) = activeChannel {
             // Send to geohash channel via Nostr ephemeral
             Task { @MainActor in
                 sendGeohash(ch: ch, content: trimmed)
             }
-        } else {
-            // Send via mesh with mentions
-            meshService.sendMessage(content, mentions: mentions)
         }
     }
     
