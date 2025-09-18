@@ -22,15 +22,19 @@ struct ImageMessageRow: View {
         #if os(iOS)
         if let uiImage = UIImage(contentsOfFile: path) {
             VStack(alignment: .leading, spacing: 4) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: 200, maxHeight: 200)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .shadow(radius: 2)
+                // Ensure image aligns with the same left edge as text messages
+                HStack(spacing: 0) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 200, maxHeight: 200, alignment: .topLeading)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    Spacer(minLength: 0)
+                }
                 if message.isPrivate && message.sender == viewModel.nickname,
                    let status = message.deliveryStatus {
                     DeliveryStatusView(status: status, colorScheme: colorScheme)
+                        .padding(.leading, 4)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
