@@ -2,6 +2,7 @@ import Foundation
 
 #if os(iOS)
 import AVFoundation
+import CoreGraphics
 
 final class VoiceRecorder: NSObject, AVAudioRecorderDelegate {
     private var recorder: AVAudioRecorder?
@@ -33,6 +34,27 @@ final class VoiceRecorder: NSObject, AVAudioRecorderDelegate {
             self?.isRecording = false
             completion()
         }
+    }
+
+    // MARK: - Live metrics for visualizer
+
+    /// Returns normalized amplitude [0,1] based on average power in dB.
+    /// Call periodically while recording to drive a live waveform.
+    func pollNormalizedAmplitude() -> CGFloat {
+        guard let r = recorder, isRecording else { return 0 }
+        r.updateMeters()
+        // Use peak power for responsiveness, map dB [-160,0] -> linear [0,1]
+        let db = r.peakPower(forChannel: 0)
+        let linear = pow(10.0, db / 20.0) // 0..1
+        if linear.isNaN || linear.isInfinite { return 0 }
+        // Keep linear to avoid globally scaling up low amplitudes
+        return CGFloat(max(0, min(1, linear)))
+    }
+
+    /// Current elapsed recording time in milliseconds.
+    func currentTimeMs() -> Int {
+        guard let r = recorder, isRecording else { return 0 }
+        return Int(r.currentTime * 1000)
     }
 }
 
