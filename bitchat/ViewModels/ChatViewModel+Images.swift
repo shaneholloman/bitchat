@@ -25,7 +25,7 @@ extension ChatViewModel {
 
         let name = fileURL.lastPathComponent
         let mime = "image/jpeg"
-        let tlv = BitchatFilePacket(fileName: name, fileSize: UInt64(data.count), mimeType: mime, content: data)
+        let tlv = BitchatFilePacket(fileName: name, fileSize: UInt32(data.count), mimeType: mime, content: data)
         guard let payload = tlv.encode() else { return }
         let transferId = payload.sha256Hex()
 

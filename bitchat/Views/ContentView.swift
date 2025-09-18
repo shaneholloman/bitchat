@@ -328,6 +328,9 @@ struct ContentView: View {
                                     let isImage = message.content.hasPrefix("[image] ")
                                     
                                     if isVoice {
+                                        // Header line above media: sender + timestamp
+                                        MessageHeaderLine(message: message)
+                                            .environmentObject(viewModel)
                                         // Hide the raw marker text; render custom voice view
                                         HStack(alignment: .center, spacing: 8) {
                                             let path = String(message.content.dropFirst("[voice] ".count))
@@ -349,40 +352,13 @@ struct ContentView: View {
                                                 .padding(.leading, 4)
                                         }
                                     } else if isImage {
+                                        // Header line above image: sender + timestamp
+                                        MessageHeaderLine(message: message)
+                                            .environmentObject(viewModel)
                                         // Hide the raw marker text; render image view
                                         let path = String(message.content.dropFirst("[image] ".count))
-                                        #if os(iOS)
-                                        if let uiImage = UIImage(contentsOfFile: path) {
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                // Image with rounded corners and left alignment
-                                                Image(uiImage: uiImage)
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fit)
-                                                    .frame(maxWidth: 200, maxHeight: 200)
-                                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                                                    .shadow(radius: 2)
-                                                
-                                                // Delivery status for our own private images
-                                                if message.isPrivate && message.sender == viewModel.nickname,
-                                                   let status = message.deliveryStatus {
-                                                    DeliveryStatusView(status: status, colorScheme: colorScheme)
-                                                }
-                                            }
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                        } else {
-                                            // Fallback for invalid image files
-                                            Text("⚠️ Image unavailable")
-                                                .font(.system(size: 14, design: .monospaced))
-                                                .foregroundColor(.secondary)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                        #else
-                                        // macOS: show path for now since NSImage loading is different
-                                        Text("📷 Image: \(path)")
-                                            .font(.system(size: 14, design: .monospaced))
-                                            .foregroundColor(textColor)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                        #endif
+                                        ImageMessageRow(path: path, message: message)
+                                            .environmentObject(viewModel)
                                     } else {
                                         HStack(alignment: .top, spacing: 0) {
                                             let isLong = (message.content.count > TransportConfig.uiLongMessageLengthThreshold || message.content.hasVeryLongToken(threshold: TransportConfig.uiVeryLongTokenThreshold)) && cashuTokens.isEmpty

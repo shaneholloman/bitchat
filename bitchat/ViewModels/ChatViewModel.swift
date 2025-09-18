@@ -3771,7 +3771,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     }
 
     @MainActor
-    private func peerColor(for message: BitchatMessage, isDark: Bool) -> Color {
+    func peerColor(for message: BitchatMessage, isDark: Bool) -> Color {
         if let spid = message.senderPeerID {
             if spid.hasPrefix("nostr:") || spid.hasPrefix("nostr_") {
                 let bare: String = {
@@ -6060,7 +6060,7 @@ private func checkForMentions(_ message: BitchatMessage) {
         guard let data = try? Data(contentsOf: fileURL) else { return }
         let name = fileURL.lastPathComponent
         let mime = "audio/mp4"
-        let tlv = BitchatFilePacket(fileName: name, fileSize: UInt64(data.count), mimeType: mime, content: data)
+        let tlv = BitchatFilePacket(fileName: name, fileSize: UInt32(data.count), mimeType: mime, content: data)
         guard let payload = tlv.encode() else { return }
         let transferId = payload.sha256Hex()
 
@@ -6104,102 +6104,8 @@ private func checkForMentions(_ message: BitchatMessage) {
             meshService.sendFileTransferTLV(payload, recipientPeerID: nil, transferId: transferId, messageID: messageID)
         }
     }
-
-    // MARK: - Images (Send)
-    #if os(iOS)
-    @MainActor
-    func sendImage(_ image: UIImage) {
-        // Downscale and encode JPEG
-        guard let data = downscaleJPEG(image, maxDimension: 512, quality: 0.85) else { return }
-
-        // Persist to app files (outgoing)
-        guard let fileURL = saveOutgoingImage(data: data) else { return }
-
-        let name = fileURL.lastPathComponent
-        let mime = "image/jpeg"
-        let tlv = BitchatFilePacket(fileName: name, fileSize: UInt64(data.count), mimeType: mime, content: data)
-        guard let payload = tlv.encode() else { return }
-        let transferId = payload.sha256Hex()
-
-        let contentMarker = "[image] \(fileURL.path)"
-        let now = Date()
-
-        if let peer = selectedPrivateChatPeer {
-            let messageID = UUID().uuidString
-            let msg = BitchatMessage(
-                id: messageID,
-                sender: nickname,
-                content: contentMarker,
-                timestamp: now,
-                isRelay: false,
-                originalSender: nil,
-                isPrivate: true,
-                recipientNickname: meshService.peerNickname(peerID: peer),
-                senderPeerID: meshService.myPeerID,
-                mentions: nil,
-                deliveryStatus: .sending
-            )
-            appendToPrivateChat(peerID: peer, message: msg)
-            meshService.sendFileTransferTLV(payload, recipientPeerID: peer, transferId: transferId, messageID: messageID)
-        } else {
-            let messageID = UUID().uuidString
-            let msg = BitchatMessage(
-                id: messageID,
-                sender: nickname,
-                content: contentMarker,
-                timestamp: now,
-                isRelay: false,
-                originalSender: nil,
-                isPrivate: false,
-                recipientNickname: nil,
-                senderPeerID: meshService.myPeerID,
-                mentions: nil,
-                deliveryStatus: .sending
-            )
-            publicBuffer.append(msg)
-            schedulePublicFlush()
-            meshService.sendFileTransferTLV(payload, recipientPeerID: nil, transferId: transferId, messageID: messageID)
-        }
-    }
-    #endif
-
-    #if os(iOS)
-    private func downscaleJPEG(_ image: UIImage, maxDimension: CGFloat, quality: CGFloat) -> Data? {
-        let size = image.size
-        guard size.width > 0 && size.height > 0 else { return image.jpegData(compressionQuality: quality) }
-        let maxSide = max(size.width, size.height)
-        let scale = min(1.0, maxDimension / maxSide)
-        let target = CGSize(width: floor(size.width * scale), height: floor(size.height * scale))
-
-        let rendererFormat = UIGraphicsImageRendererFormat.default()
-        rendererFormat.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: target, format: rendererFormat)
-        let scaled = renderer.image { ctx in
-            UIColor.clear.setFill()
-            ctx.fill(CGRect(origin: .zero, size: target))
-            image.draw(in: CGRect(origin: .zero, size: target))
-        }
-        return scaled.jpegData(compressionQuality: quality)
-    }
-
-    private func saveOutgoingImage(data: Data) -> URL? {
-        do {
-            let fm = FileManager.default
-            let base = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            let folder = base.appendingPathComponent("bitchat_images/outgoing", isDirectory: true)
-            if !fm.fileExists(atPath: folder.path) {
-                try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-            }
-            let ts = Int(Date().timeIntervalSince1970)
-            let fileURL = folder.appendingPathComponent("img_\(ts)_\(UUID().uuidString.prefix(8)).jpg")
-            try data.write(to: fileURL, options: .atomic)
-            return fileURL
-        } catch {
-            SecureLogger.error("❌ Failed to save outgoing image: \(error)", category: .session)
-            return nil
-        }
-    }
-    #endif
+    
+    // Images code moved to ChatViewModel+Images.swift
 
     @MainActor
     private func appendToPrivateChat(peerID: String, message: BitchatMessage) {
