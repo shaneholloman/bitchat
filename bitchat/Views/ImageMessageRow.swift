@@ -28,6 +28,7 @@ struct ImageMessageRow: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: 300, maxHeight: 400, alignment: .topLeading)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     Spacer(minLength: 0)
                 }
                 if message.isPrivate && message.sender == viewModel.nickname,

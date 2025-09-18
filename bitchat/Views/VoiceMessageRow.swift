@@ -11,44 +11,54 @@ struct VoiceMessageRow: View {
     @State private var player: AVAudioPlayer?
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
+            // Play / Pause control (fixed size similar to Android's 28dp)
             Button(action: togglePlay) {
                 Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 22))
+                    .font(.system(size: 24))
             }
             .buttonStyle(.plain)
 
+            // Waveform takes remaining width, fixed height, vertically centered
             GeometryReader { geo in
+                let barWidth: CGFloat = 2
+                let barSpacing: CGFloat = 2
+                let step = barWidth + barSpacing
+                let maxBars = max(0, Int(floor(geo.size.width / step)))
+                let displayCount = min(maxBars, bins.count)
+
                 ZStack(alignment: .leading) {
-                    // Base waveform
-                    HStack(spacing: 2) {
-                        ForEach(Array(bins.enumerated()), id: \.offset) { _, v in
-                            // Apply logarithmic normalization for better visibility of quiet recordings
+                    // Base waveform (gray)
+                    HStack(spacing: barSpacing) {
+                        ForEach(0..<displayCount, id: \.self) { i in
+                            let v = bins[i]
                             let normalizedV = v <= 0 ? 0 : min(1.0, log(1.0 + v * 9.0) / log(10.0))
                             let h = max(2, CGFloat(normalizedV) * geo.size.height)
-                            Capsule().fill(Color.gray.opacity(0.4)).frame(width: 2, height: h)
+                            VStack { Spacer(minLength: 0); Capsule().fill(Color.gray.opacity(0.4)).frame(width: barWidth, height: h); Spacer(minLength: 0) }
                         }
                     }
-                    // Filled progress (with normalized amplitude)
+
+                    // Filled progress (blue) or send progress if provided
                     let activeProgress = sendProgress ?? progress
-                    let filled = Int(Double(bins.count) * activeProgress)
-                    HStack(spacing: 2) {
-                        ForEach(0..<max(0, min(bins.count, filled)), id: \.self) { i in
+                    let filledBars = Int(Double(displayCount) * activeProgress)
+                    HStack(spacing: barSpacing) {
+                        ForEach(0..<max(0, min(displayCount, filledBars)), id: \.self) { i in
                             let v = bins[i]
-                            // Apply logarithmic normalization for better visibility of quiet recordings
                             let normalizedV = v <= 0 ? 0 : min(1.0, log(1.0 + v * 9.0) / log(10.0))
                             let h = max(2, CGFloat(normalizedV) * geo.size.height)
-                            Capsule().fill(Color.blue).frame(width: 2, height: h)
+                            VStack { Spacer(minLength: 0); Capsule().fill(Color.blue).frame(width: barWidth, height: h); Spacer(minLength: 0) }
                         }
-                        Spacer(minLength: 0)
                     }
                 }
+                .clipped() // prevent overflow beyond available width/height
             }
-            .frame(height: 26)
+            .frame(height: 36)
 
+            // Reserve width for duration to avoid being pushed out by waveform
             Text(formattedDuration)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 12, design: .monospaced))
                 .foregroundColor(.secondary)
+                .frame(width: 44, alignment: .trailing)
         }
         .onAppear(perform: load)
         .onDisappear { player?.stop(); isPlaying = false }
