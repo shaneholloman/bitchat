@@ -62,7 +62,6 @@
 /// ## Integration Points
 /// - **BLEService**: Calls this service for all private messages
 /// - **ChatViewModel**: Monitors encryption status for UI indicators
-/// - **NoiseHandshakeCoordinator**: Prevents handshake race conditions
 /// - **KeychainManager**: Secure storage for identity keys
 ///
 /// ## Thread Safety
@@ -525,6 +524,15 @@ final class NoiseEncryptionService {
         }
         
         SecureLogger.info(.sessionExpired(peerID: peerID))
+    }
+
+    func clearEphemeralStateForPanic() {
+        sessionManager.removeAllSessions()
+        serviceQueue.sync(flags: .barrier) {
+            peerFingerprints.removeAll()
+            fingerprintToPeerID.removeAll()
+        }
+        rateLimiter.resetAll()
     }
     
     // MARK: - Private Helpers
