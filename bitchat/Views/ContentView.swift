@@ -399,11 +399,11 @@ struct ContentView: View {
                                 }
                             }
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 2)
+                            .padding(.vertical, 1)
                     }
                 }
                 .transaction { tx in if viewModel.isBatchingPublic { tx.disablesAnimations = true } }
-                .padding(.vertical, 4)
+                .padding(.vertical, 2)
             }
             .background(backgroundColor)
             .onOpenURL { handleOpenURL($0) }
