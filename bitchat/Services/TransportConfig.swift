@@ -29,7 +29,7 @@ enum TransportConfig {
     // BLE discovery/quality thresholds
     static let bleDynamicRSSIThresholdDefault: Int = -90
     static let bleConnectionCandidatesMax: Int = 100
-    static let blePendingWriteBufferCapBytes: Int = 1_000_000
+    static let blePendingWriteBufferCapBytes: Int = 8 * 1024 * 1024
     static let blePendingNotificationsCapCount: Int = 20
 
     // Nostr
