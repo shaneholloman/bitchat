@@ -15,6 +15,12 @@ struct NotificationStreamAssembler {
 
         buffer.append(chunk)
 
+        if buffer.count > TransportConfig.bleNotificationAssemblerHardCapBytes {
+            SecureLogger.error("❌ Notification assembler overflow (\(buffer.count) bytes); dropping partial frame", category: .session)
+            buffer.removeAll(keepingCapacity: false)
+            return ([], [], true)
+        }
+
         var frames: [Data] = []
         var dropped: [UInt8] = []
         var reset = false
