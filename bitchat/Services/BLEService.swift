@@ -1536,6 +1536,13 @@ final class BLEService: NSObject {
             if hasCollision {
                 senderNickname += "#" + String(peerID.prefix(4))
             }
+        } else if let info = peers[peerID], info.isConnected {
+            accepted = true
+            senderNickname = info.nickname.isEmpty ? "anon" + String(peerID.prefix(4)) : info.nickname
+            let hasCollision = peers.values.contains { $0.isConnected && $0.nickname == info.nickname && $0.id != peerID } || (myNickname == info.nickname)
+            if hasCollision {
+                senderNickname += "#" + String(peerID.prefix(4))
+            }
         } else if let signature = packet.signature, let packetData = packet.toBinaryDataForSigning() {
             let candidates = identityManager.getCryptoIdentitiesByPeerIDPrefix(peerID)
             for candidate in candidates {
