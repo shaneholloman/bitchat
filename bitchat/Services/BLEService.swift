@@ -24,7 +24,7 @@ struct NotificationStreamAssembler {
         var frames: [Data] = []
         var dropped: [UInt8] = []
         var reset = false
-        let maxFrameLength = TransportConfig.blePendingWriteBufferCapBytes
+        let maxFrameLength = TransportConfig.bleNotificationAssemblerHardCapBytes
 
         while buffer.count >= BinaryProtocol.v1HeaderSize + BinaryProtocol.senderIDSize {
             guard let version = buffer.first else { break }
