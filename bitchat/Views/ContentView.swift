@@ -75,6 +75,9 @@ struct ContentView: View {
     @State private var selectedPhotoPickerItem: PhotosPickerItem?
 #endif
     @State private var showAttachmentActions = false
+#if os(macOS)
+    @State private var showAttachmentUnavailableAlert = false
+#endif
     @ScaledMetric(relativeTo: .body) private var headerHeight: CGFloat = 44
     @ScaledMetric(relativeTo: .subheadline) private var headerPeerIconSize: CGFloat = 11
     @ScaledMetric(relativeTo: .subheadline) private var headerPeerCountFontSize: CGFloat = 12
@@ -205,13 +208,12 @@ struct ContentView: View {
             Task { await handlePhotoSelection(item) }
         }
 #else
-        .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.image], allowsMultipleSelection: false) { result in
-            handleImportResult(result, handler: handleImportedImage)
-        }
+        .alert("Attachments Unavailable", isPresented: $showAttachmentUnavailableAlert, actions: {
+            Button("OK", role: .cancel) {}
+        }, message: {
+            Text("File and photo pickers require additional entitlements on macOS preview builds.")
+        })
 #endif
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
-            handleImportResult(result, handler: handleImportedFile)
-        }
         .sheet(isPresented: Binding(
             get: { imagePreviewURL != nil },
             set: { presenting in if !presenting { imagePreviewURL = nil } }
@@ -229,12 +231,16 @@ struct ContentView: View {
 #else
             Button("Image") {
                 showAttachmentActions = false
-                DispatchQueue.main.async { showImageImporter = true }
+                showAttachmentUnavailableAlert = true
             }
 #endif
             Button("File") {
                 showAttachmentActions = false
+#if os(iOS)
                 DispatchQueue.main.async { showFileImporter = true }
+#else
+                showAttachmentUnavailableAlert = true
+#endif
             }
             Button("Cancel", role: .cancel) {}
         }
@@ -1846,24 +1852,6 @@ private extension ContentView {
     }
 
     var attachmentButton: some View {
-#if os(macOS)
-        Menu {
-            Button("Image") {
-                showImageImporter = false
-                DispatchQueue.main.async { showImageImporter = true }
-            }
-            Button("File") {
-                showFileImporter = false
-                DispatchQueue.main.async { showFileImporter = true }
-            }
-        } label: {
-            Image(systemName: "paperclip.circle.fill")
-                .font(.bitchatSystem(size: 24))
-                .foregroundColor(composerAccentColor)
-                .frame(width: 36, height: 36)
-        }
-        .menuStyle(.borderlessButton)
-#else
         Button(action: { showAttachmentActions = true }) {
             Image(systemName: "paperclip.circle.fill")
                 .font(.bitchatSystem(size: 24))
@@ -1871,7 +1859,6 @@ private extension ContentView {
                 .frame(width: 36, height: 36)
         }
         .buttonStyle(.plain)
-#endif
     }
 
     var sendOrMicButton: some View {
