@@ -1645,7 +1645,7 @@ private extension ContentView {
         let shouldBlurImage = !isAuthoredByUs
         let cancelAction: (() -> Void)? = state.canCancel ? { viewModel.cancelMediaSend(messageID: message.id) } : nil
 
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .center, spacing: 4) {
                 Text(viewModel.formatMessageHeader(message, colorScheme: colorScheme))
                     .fixedSize(horizontal: false, vertical: true)
@@ -1693,7 +1693,7 @@ private extension ContentView {
                 }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder
