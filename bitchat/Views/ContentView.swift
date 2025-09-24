@@ -207,6 +207,9 @@ struct ContentView: View {
             guard let item = newItem else { return }
             Task { await handlePhotoSelection(item) }
         }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
+            handleImportResult(result, handler: handleImportedFile)
+        }
 #else
         .alert("Attachments Unavailable", isPresented: $showAttachmentUnavailableAlert, actions: {
             Button("OK", role: .cancel) {}
