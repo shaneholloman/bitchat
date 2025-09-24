@@ -2055,8 +2055,20 @@ private extension ContentView {
     }
 
     func handleImportedFile(url: URL) async {
-        await MainActor.run {
-            viewModel.sendFileAttachment(from: url)
+        do {
+            let fileManager = FileManager.default
+            let tempDir = fileManager.temporaryDirectory
+            let fileName = url.lastPathComponent.isEmpty ? "attachment" : url.lastPathComponent
+            let destination = tempDir.appendingPathComponent(UUID().uuidString + "_" + fileName)
+            if fileManager.fileExists(atPath: destination.path) {
+                try fileManager.removeItem(at: destination)
+            }
+            try fileManager.copyItem(at: url, to: destination)
+            await MainActor.run {
+                viewModel.sendFileAttachment(from: destination)
+            }
+        } catch {
+            SecureLogger.error("File copy failed before send: \(error)", category: .session)
         }
     }
 
