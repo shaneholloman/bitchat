@@ -14,6 +14,7 @@ enum ImageUtilsError: Error {
 
 enum ImageUtils {
     private static let compressionQuality: CGFloat = 0.85
+    private static let targetImageBytes: Int = 60_000
 
     static func processImage(at url: URL, maxDimension: CGFloat = 512) throws -> URL {
         let data = try Data(contentsOf: url)
@@ -29,8 +30,14 @@ enum ImageUtils {
     #if os(iOS)
     static func processImage(_ image: UIImage, maxDimension: CGFloat = 512) throws -> URL {
         let scaled = scaledImage(image, maxDimension: maxDimension)
-        guard let jpegData = scaled.jpegData(compressionQuality: compressionQuality) else {
+        var quality = compressionQuality
+        guard var jpegData = scaled.jpegData(compressionQuality: quality) else {
             throw ImageUtilsError.encodingFailed
+        }
+        while jpegData.count > targetImageBytes && quality > 0.3 {
+            quality -= 0.1
+            guard let next = scaled.jpegData(compressionQuality: quality) else { break }
+            jpegData = next
         }
         let outputURL = try makeOutputURL()
         try jpegData.write(to: outputURL, options: .atomic)
@@ -73,21 +80,17 @@ enum ImageUtils {
         guard let cgImage = context.makeImage() else {
             throw ImageUtilsError.encodingFailed
         }
+        var quality = compressionQuality
+        guard var jpegData = encodeJPEG(from: cgImage, quality: quality) else {
+            throw ImageUtilsError.encodingFailed
+        }
+        while jpegData.count > targetImageBytes && quality > 0.3 {
+            quality -= 0.1
+            guard let next = encodeJPEG(from: cgImage, quality: quality) else { break }
+            jpegData = next
+        }
         let outputURL = try makeOutputURL()
-        guard let destination = CGImageDestinationCreateWithURL(outputURL as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
-            throw ImageUtilsError.encodingFailed
-        }
-        let options: [CFString: Any] = [
-            kCGImageDestinationLossyCompressionQuality: compressionQuality,
-            kCGImagePropertyExifDictionary: [:],
-            kCGImagePropertyTIFFDictionary: [:],
-            kCGImagePropertyIPTCDictionary: [:],
-            kCGImagePropertyOrientation: 1
-        ]
-        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else {
-            throw ImageUtilsError.encodingFailed
-        }
+        try jpegData.write(to: outputURL, options: .atomic)
         return outputURL
     }
 
@@ -105,6 +108,25 @@ enum ImageUtils {
                    fraction: 1.0)
         scaledImage.unlockFocus()
         return scaledImage
+    }
+
+    private static func encodeJPEG(from cgImage: CGImage, quality: CGFloat) -> Data? {
+        let data = CFDataCreateMutable(nil, 0)
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: quality,
+            kCGImagePropertyExifDictionary: [:],
+            kCGImagePropertyTIFFDictionary: [:],
+            kCGImagePropertyIPTCDictionary: [:],
+            kCGImagePropertyOrientation: 1
+        ]
+        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else {
+            return nil
+        }
+        return data as Data
     }
     #endif
 
