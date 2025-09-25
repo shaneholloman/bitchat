@@ -106,6 +106,7 @@ struct BlockRevealImageView: View {
             loadImage()
         }
         .gesture(gestureHandler)
+        .simultaneousGesture(longPressGesture)
     }
 
     private func loadImage() {
@@ -139,6 +140,17 @@ struct BlockRevealImageView: View {
             }
         }
         return doubleTap.exclusively(before: singleTap)
+    }
+
+    private var longPressGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+            guard !isSending else { return }
+            if !isBlurred {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isBlurred = true
+                }
+            }
+        }
     }
 }
 
