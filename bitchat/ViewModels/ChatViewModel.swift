@@ -431,7 +431,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     
     // Delivery tracking
     private var cancellables = Set<AnyCancellable>()
-    private var transferIdToMessageID: [String: String] = [:]
+    private var transferIdToMessageIDs: [String: [String]] = [:]
     private var messageIDToTransferId: [String: String] = [:]
 
     // MARK: - QR Verification (pending state)
@@ -2497,6 +2497,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
+            defer { try? FileManager.default.removeItem(at: sourceURL) }
             var destinationURL: URL?
             do {
                 let data = try Data(contentsOf: sourceURL)
@@ -2546,7 +2547,9 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
 
     @MainActor
     func cancelMediaSend(messageID: String) {
-        if let transferId = messageIDToTransferId[messageID] {
+        if let transferId = messageIDToTransferId[messageID],
+           let active = transferIdToMessageIDs[transferId]?.first,
+           active == messageID {
             meshService.cancelTransfer(transferId)
         }
         clearTransferMapping(for: messageID)
@@ -2647,15 +2650,22 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
 
     @MainActor
     private func registerTransfer(transferId: String, messageID: String) {
-        transferIdToMessageID[transferId] = messageID
+        transferIdToMessageIDs[transferId, default: []].append(messageID)
         messageIDToTransferId[messageID] = transferId
     }
 
     @MainActor
     private func clearTransferMapping(for messageID: String) {
-        if let transferId = messageIDToTransferId.removeValue(forKey: messageID) {
-            transferIdToMessageID.removeValue(forKey: transferId)
+        guard let transferId = messageIDToTransferId.removeValue(forKey: messageID) else { return }
+        guard var queue = transferIdToMessageIDs[transferId] else { return }
+        if !queue.isEmpty {
+            if queue.first == messageID {
+                queue.removeFirst()
+            } else if let idx = queue.firstIndex(of: messageID) {
+                queue.remove(at: idx)
+            }
         }
+        transferIdToMessageIDs[transferId] = queue.isEmpty ? nil : queue
     }
 
     @MainActor
@@ -2668,17 +2678,17 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     private func handleTransferEvent(_ event: TransferProgressManager.Event) {
         switch event {
         case .started(let id, let total):
-            guard let messageID = transferIdToMessageID[id] else { return }
+            guard let messageID = transferIdToMessageIDs[id]?.first else { return }
             updateMessageDeliveryStatus(messageID, status: .partiallyDelivered(reached: 0, total: total))
         case .updated(let id, let sent, let total):
-            guard let messageID = transferIdToMessageID[id] else { return }
+            guard let messageID = transferIdToMessageIDs[id]?.first else { return }
             updateMessageDeliveryStatus(messageID, status: .partiallyDelivered(reached: sent, total: total))
         case .completed(let id, _):
-            guard let messageID = transferIdToMessageID[id] else { return }
+            guard let messageID = transferIdToMessageIDs[id]?.first else { return }
             updateMessageDeliveryStatus(messageID, status: .sent)
             clearTransferMapping(for: messageID)
         case .cancelled(let id, _, _):
-            guard let messageID = transferIdToMessageID[id] else { return }
+            guard let messageID = transferIdToMessageIDs[id]?.first else { return }
             clearTransferMapping(for: messageID)
             removeMessage(withID: messageID, cleanupFile: true)
         }
