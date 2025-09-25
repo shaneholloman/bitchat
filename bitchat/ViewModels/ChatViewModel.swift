@@ -2431,12 +2431,6 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
             var processedURL: URL?
-            defer {
-                if let url = processedURL {
-                    try? FileManager.default.removeItem(at: url)
-                }
-                cleanup?()
-            }
             do {
                 let outputURL = try ImageUtils.processImage(at: sourceURL)
                 processedURL = outputURL
@@ -2472,7 +2466,11 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                 await MainActor.run {
                     self.addSystemMessage("Failed to prepare image for sending.")
                 }
+                if let url = processedURL {
+                    try? FileManager.default.removeItem(at: url)
+                }
             }
+            cleanup?()
         }
     }
 
