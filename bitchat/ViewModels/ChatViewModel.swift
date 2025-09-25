@@ -2424,7 +2424,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                     mimeType: "audio/mp4",
                     content: data
                 )
-                guard let payload = packet.encode() else { throw MediaSendError.encodingFailed }
+                guard packet.encode() != nil else { throw MediaSendError.encodingFailed }
                 await MainActor.run {
                     self.registerTransfer(transferId: transferId, messageID: messageID)
                     if let peerID = targetPeer {
@@ -2467,7 +2467,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                     mimeType: "image/jpeg",
                     content: data
                 )
-                guard let payload = packet.encode() else { throw MediaSendError.encodingFailed }
+                guard packet.encode() != nil else { throw MediaSendError.encodingFailed }
                 await MainActor.run {
                     let message = self.enqueueMediaMessage(content: "[image] \(outputURL.lastPathComponent)", targetPeer: targetPeer)
                     let messageID = message.id
@@ -2514,7 +2514,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                     mimeType: self.mimeType(for: destination),
                     content: data
                 )
-                guard let payload = packet.encode() else {
+                guard packet.encode() != nil else {
                     try? FileManager.default.removeItem(at: destination)
                     throw MediaSendError.encodingFailed
                 }
