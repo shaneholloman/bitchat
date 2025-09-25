@@ -2682,11 +2682,15 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     }
 
     private func cleanupLocalFile(forMessage message: BitchatMessage) {
-        let prefixes = ["[voice] ", "[image] ", "[file] "]
-        guard let prefix = prefixes.first(where: { message.content.hasPrefix($0) }) else { return }
-        let path = String(message.content.dropFirst(prefix.count))
-        if FileManager.default.fileExists(atPath: path) {
-            try? FileManager.default.removeItem(atPath: path)
+        let prefixes = ["[voice] ": "voicenotes/outgoing",
+                        "[image] ": "images/outgoing",
+                        "[file] ": "files/outgoing"]
+        guard let entry = prefixes.first(where: { message.content.hasPrefix($0.key) }) else { return }
+        let filename = String(message.content.dropFirst(entry.key.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !filename.isEmpty, let base = try? applicationFilesDirectory() else { return }
+        let target = base.appendingPathComponent(entry.value, isDirectory: true).appendingPathComponent(filename)
+        if FileManager.default.fileExists(atPath: target.path) {
+            try? FileManager.default.removeItem(at: target)
         }
     }
 
