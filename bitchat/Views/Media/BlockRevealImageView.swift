@@ -105,8 +105,7 @@ struct BlockRevealImageView: View {
             isBlurred = initiallyBlurred
             loadImage()
         }
-        .gesture(gestureHandler)
-        .simultaneousGesture(longPressGesture)
+        .gesture(mainGesture)
     }
 
     private func loadImage() {
@@ -124,7 +123,7 @@ struct BlockRevealImageView: View {
         }
     }
 
-    private var gestureHandler: some Gesture {
+    private var mainGesture: some Gesture {
         let doubleTap = TapGesture(count: 2).onEnded {
             guard !isSending else { return }
             onDelete?()
@@ -139,18 +138,18 @@ struct BlockRevealImageView: View {
                 onOpen?()
             }
         }
-        return doubleTap.exclusively(before: singleTap)
-    }
-
-    private var longPressGesture: some Gesture {
-        LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+        let swipe = DragGesture(minimumDistance: 20, coordinateSpace: .local).onEnded { value in
             guard !isSending else { return }
+            let horizontal = value.translation.width
+            let vertical = value.translation.height
+            guard abs(horizontal) > abs(vertical), abs(horizontal) > 40 else { return }
             if !isBlurred {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isBlurred = true
                 }
             }
         }
+        return doubleTap.exclusively(before: singleTap).simultaneously(with: swipe)
     }
 }
 
