@@ -916,13 +916,7 @@ final class BLEService: NSObject {
             for central in centrals where mapping[central.identifier.uuidString] == recipientPeerID {
                 let success = peripheralManager?.updateValue(data, for: characteristic, onSubscribedCentrals: [central]) ?? false
                 if success { sentEncrypted = true; break }
-                collectionsQueue.async(flags: .barrier) { [weak self] in
-                    guard let self = self else { return }
-                    if self.pendingNotifications.count < TransportConfig.blePendingNotificationsCapCount {
-                        self.pendingNotifications.append((data: data, centrals: [central]))
-                        SecureLogger.debug("📋 Queued encrypted packet for retry (notification queue full)", category: .session)
-                    }
-                }
+                enqueuePendingNotification(data: data, centrals: [central], context: "encrypted")
             }
         }
 
@@ -934,6 +928,28 @@ final class BLEService: NSObject {
 
     private func sendGenericBroadcast(_ packet: BitchatPacket, data: Data, pad: Bool) {
         sendOnAllLinks(packet: packet, data: data, pad: pad, directedOnlyPeer: nil)
+    }
+
+    private func enqueuePendingNotification(data: Data, centrals: [CBCentral]?, context: String, attempt: Int = 0) {
+        collectionsQueue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            if self.pendingNotifications.count < TransportConfig.blePendingNotificationsCapCount {
+                self.pendingNotifications.append((data: data, centrals: centrals))
+                SecureLogger.debug("📋 Queued \(context) packet for retry (pending=\(self.pendingNotifications.count))", category: .session)
+                return
+            }
+
+            if attempt >= TransportConfig.bleNotificationRetryMaxAttempts {
+                SecureLogger.error("❌ Dropping \(context) packet after exhausting retry window (pending=\(self.pendingNotifications.count))", category: .session)
+                return
+            }
+
+            let backoff = TransportConfig.bleNotificationRetryDelayMs * max(1, attempt + 1)
+            let deadline = DispatchTime.now() + .milliseconds(backoff)
+            self.messageQueue.asyncAfter(deadline: deadline) { [weak self] in
+                self?.enqueuePendingNotification(data: data, centrals: centrals, context: context, attempt: attempt + 1)
+            }
+        }
     }
 
     private func sendOnAllLinks(packet: BitchatPacket, data: Data, pad: Bool, directedOnlyPeer: String?) {
