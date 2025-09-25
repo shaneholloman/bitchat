@@ -75,9 +75,6 @@ struct ContentView: View {
     @State private var selectedPhotoPickerItem: PhotosPickerItem?
 #endif
     @State private var showAttachmentActions = false
-#if os(macOS)
-    @State private var showAttachmentUnavailableAlert = false
-#endif
     @ScaledMetric(relativeTo: .body) private var headerHeight: CGFloat = 44
     @ScaledMetric(relativeTo: .subheadline) private var headerPeerIconSize: CGFloat = 11
     @ScaledMetric(relativeTo: .subheadline) private var headerPeerCountFontSize: CGFloat = 12
@@ -211,11 +208,12 @@ struct ContentView: View {
             handleImportResult(result, handler: handleImportedFile)
         }
 #else
-        .alert("Attachments Unavailable", isPresented: $showAttachmentUnavailableAlert, actions: {
-            Button("OK", role: .cancel) {}
-        }, message: {
-            Text("File and photo pickers require additional entitlements on macOS preview builds.")
-        })
+        .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.image], allowsMultipleSelection: false) { result in
+            handleImportResult(result, handler: handleImportedImage)
+        }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
+            handleImportResult(result, handler: handleImportedFile)
+        }
 #endif
         .sheet(isPresented: Binding(
             get: { imagePreviewURL != nil },
@@ -234,7 +232,7 @@ struct ContentView: View {
 #else
             Button("Image") {
                 showAttachmentActions = false
-                showAttachmentUnavailableAlert = true
+                DispatchQueue.main.async { showImageImporter = true }
             }
 #endif
             Button("File") {
@@ -242,7 +240,7 @@ struct ContentView: View {
 #if os(iOS)
                 DispatchQueue.main.async { showFileImporter = true }
 #else
-                showAttachmentUnavailableAlert = true
+                DispatchQueue.main.async { showFileImporter = true }
 #endif
             }
             Button("Cancel", role: .cancel) {}
