@@ -1630,7 +1630,6 @@ private extension ContentView {
             let standardized = url.standardizedFileURL
             let path = standardized.path
             guard path == basePath || path.hasPrefix(basePath + "/") else { return nil }
-            guard FileManager.default.fileExists(atPath: path) else { return nil }
             return standardized
         }
 
@@ -2122,8 +2121,10 @@ private extension ContentView {
 
     func applicationFilesDirectory() -> URL? {
         do {
-            let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-            return base.appendingPathComponent("files", isDirectory: true)
+            let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            let filesDir = base.appendingPathComponent("files", isDirectory: true)
+            try FileManager.default.createDirectory(at: filesDir, withIntermediateDirectories: true, attributes: nil)
+            return filesDir
         } catch {
             SecureLogger.error("Failed to resolve application files directory: \(error)", category: .session)
             return nil
