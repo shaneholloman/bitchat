@@ -26,7 +26,9 @@ struct NotificationStreamAssembler {
         var reset = false
         let maxFrameLength = TransportConfig.bleNotificationAssemblerHardCapBytes
 
-        while buffer.count >= BinaryProtocol.v1HeaderSize + BinaryProtocol.senderIDSize {
+        let minimumFramePrefix = BinaryProtocol.v1HeaderSize + BinaryProtocol.senderIDSize
+
+        while buffer.count >= minimumFramePrefix {
             guard let version = buffer.first else { break }
             guard version == 1 || version == 2 else {
                 dropped.append(buffer.removeFirst())
@@ -41,10 +43,13 @@ struct NotificationStreamAssembler {
             }
             guard buffer.count >= framePrefix else { break }
 
-            let flagsIndex = buffer.startIndex + 11
+            let flagsOffset = 1 + 1 + 1 + 8 // version + type + ttl + timestamp
+            let flagsIndex = buffer.startIndex + flagsOffset
+            guard flagsIndex < buffer.endIndex else { break }
             let flags = buffer[flagsIndex]
             let hasRecipient = (flags & BinaryProtocol.Flags.hasRecipient) != 0
             let hasSignature = (flags & BinaryProtocol.Flags.hasSignature) != 0
+            let isCompressed = (flags & BinaryProtocol.Flags.isCompressed) != 0
 
             let lengthOffset = 12
             let payloadLength: Int
@@ -63,6 +68,15 @@ struct NotificationStreamAssembler {
             var frameLength = framePrefix + payloadLength
             if hasRecipient { frameLength += BinaryProtocol.recipientIDSize }
             if hasSignature { frameLength += BinaryProtocol.signatureSize }
+            if isCompressed {
+                let rawLengthFieldBytes = (version == 2) ? 4 : 2
+                if payloadLength < rawLengthFieldBytes {
+                    SecureLogger.error("❌ Invalid compressed payload length (\(payloadLength))", category: .session)
+                    buffer.removeAll()
+                    reset = true
+                    break
+                }
+            }
 
             guard frameLength > 0, frameLength <= maxFrameLength else {
                 SecureLogger.error("❌ Notification frame length \(frameLength) invalid (cap=\(maxFrameLength)); resetting stream", category: .session)
