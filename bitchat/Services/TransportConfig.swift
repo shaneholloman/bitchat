@@ -31,7 +31,9 @@ enum TransportConfig {
     static let bleConnectionCandidatesMax: Int = 100
     static let blePendingWriteBufferCapBytes: Int = 1_000_000
     static let bleNotificationAssemblerHardCapBytes: Int = 8 * 1024 * 1024
-    static let blePendingNotificationsCapCount: Int = 20
+    static let blePendingNotificationsCapCount: Int = 128
+    static let bleNotificationRetryDelayMs: Int = 25
+    static let bleNotificationRetryMaxAttempts: Int = 80
 
     // Nostr
     static let nostrReadAckInterval: TimeInterval = 0.35 // ~3 per second
