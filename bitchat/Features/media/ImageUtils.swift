@@ -111,7 +111,9 @@ enum ImageUtils {
     }
 
     private static func encodeJPEG(from cgImage: CGImage, quality: CGFloat) -> Data? {
-        let data = CFDataCreateMutable(nil, 0)
+        guard let data = CFDataCreateMutable(nil, 0) else {
+            return nil
+        }
         guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
             return nil
         }
