@@ -72,15 +72,7 @@ struct NotificationStreamAssembler {
             }
 
             if buffer.count < frameLength {
-                SecureLogger.warning("⚠️ Incomplete BLE frame: have \(buffer.count)B need \(frameLength)B; scanning for next header", category: .session)
-                if let nextStart = buffer.dropFirst().firstIndex(where: { $0 == 1 || $0 == 2 }) {
-                    let dropCount = buffer.distance(from: buffer.startIndex, to: nextStart)
-                    if dropCount > 0 {
-                        let removed = buffer.prefix(dropCount)
-                        buffer.removeFirst(dropCount)
-                        dropped.append(contentsOf: removed)
-                    }
-                }
+                SecureLogger.debug("⌛ Waiting for remaining \(frameLength - buffer.count)B to complete BLE frame", category: .session)
                 break
             }
 
