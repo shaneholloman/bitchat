@@ -320,8 +320,8 @@ struct BinaryProtocol {
                     guard let rawSize = read16() else { return nil }
                     originalSize = Int(rawSize)
                 }
-                // Guard to keep decompression bounded (1 MiB ceiling aligns with previous behaviour)
-                guard originalSize >= 0 && originalSize <= 1_048_576 else { return nil }
+                // Guard to keep decompression bounded to sane BLE payload limits
+                guard originalSize >= 0 && originalSize <= FileTransferLimits.maxPayloadBytes else { return nil }
                 let compressedSize = payloadLength - lengthFieldBytes
                 guard compressedSize >= 0, let compressed = readData(compressedSize) else { return nil }
                 guard let decompressed = CompressionUtil.decompress(compressed, originalSize: originalSize),
