@@ -2215,7 +2215,7 @@ struct ImagePreviewView: View {
                 Spacer()
                 HStack {
                     Button(action: { dismiss() }) {
-                        Text("Close")
+                        Text("close")
                             .font(.bitchatSystem(size: 15, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16)
@@ -2224,7 +2224,7 @@ struct ImagePreviewView: View {
                     }
                     Spacer()
                     Button(action: saveCopy) {
-                        Text("Save")
+                        Text("save")
                             .font(.bitchatSystem(size: 15, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16)
