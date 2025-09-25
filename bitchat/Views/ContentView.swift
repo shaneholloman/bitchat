@@ -68,6 +68,7 @@ struct ContentView: View {
     @State private var isPreparingVoiceNote = false
     @State private var recordingDuration: TimeInterval = 0
     @State private var recordingTimer: Timer?
+    @State private var recordingStartDate: Date?
     @State private var showImageImporter = false
     @State private var showFileImporter = false
 #if os(iOS)
@@ -1926,9 +1927,11 @@ private extension ContentView {
 
     func formattedRecordingDuration() -> String {
         let clamped = max(0, recordingDuration)
-        let minutes = Int(clamped) / 60
-        let seconds = Int(clamped) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        let totalMilliseconds = Int((clamped * 1000).rounded())
+        let minutes = totalMilliseconds / 60_000
+        let seconds = (totalMilliseconds % 60_000) / 1_000
+        let centiseconds = (totalMilliseconds % 1_000) / 10
+        return String(format: "%02d:%02d.%02d", minutes, seconds, centiseconds)
     }
 
     func startVoiceRecording() {
@@ -1945,9 +1948,12 @@ private extension ContentView {
             do {
                 _ = try VoiceRecorder.shared.startRecording()
                 recordingDuration = 0
+                recordingStartDate = Date()
                 recordingTimer?.invalidate()
-                recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-                    recordingDuration += 0.1
+                recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+                    if let start = recordingStartDate {
+                        recordingDuration = Date().timeIntervalSince(start)
+                    }
                 }
                 if let timer = recordingTimer {
                     RunLoop.main.add(timer, forMode: .common)
@@ -1961,6 +1967,7 @@ private extension ContentView {
                 VoiceRecorder.shared.cancelRecording()
                 isPreparingVoiceNote = false
                 isRecordingVoiceNote = false
+                recordingStartDate = nil
             }
         }
     }
@@ -1975,6 +1982,10 @@ private extension ContentView {
         isRecordingVoiceNote = false
         recordingTimer?.invalidate()
         recordingTimer = nil
+        if let start = recordingStartDate {
+            recordingDuration = Date().timeIntervalSince(start)
+        }
+        recordingStartDate = nil
         if send {
             let minimumDuration: TimeInterval = 1.0
             VoiceRecorder.shared.stopRecording { url in
