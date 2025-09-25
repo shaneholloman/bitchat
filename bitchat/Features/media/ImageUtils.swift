@@ -52,7 +52,7 @@ enum ImageUtils {
         let scaled = scaledImage(image, maxDimension: maxDimension)
         guard let tiffData = scaled.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
-              let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: compressionQuality, .lossless: false]) else {
+              let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: compressionQuality]) else {
             throw ImageUtilsError.encodingFailed
         }
         let outputURL = try makeOutputURL()
