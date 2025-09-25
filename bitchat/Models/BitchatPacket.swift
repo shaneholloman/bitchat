@@ -80,7 +80,8 @@ struct BitchatPacket: Codable {
             timestamp: timestamp,
             payload: payload,
             signature: nil, // Remove signature for signing
-            ttl: 0 // Use fixed TTL=0 for signing to ensure relay compatibility
+            ttl: 0, // Use fixed TTL=0 for signing to ensure relay compatibility
+            version: version
         )
         return BinaryProtocol.encode(unsignedPacket)
     }
