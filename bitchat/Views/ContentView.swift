@@ -1562,20 +1562,31 @@ private enum MessageMedia {
 private extension ContentView {
     func mediaAttachment(for message: BitchatMessage) -> MessageMedia? {
         guard let baseDirectory = applicationFilesDirectory() else { return nil }
-        let basePath = baseDirectory.standardizedFileURL.path
 
-        func url(from prefix: String, subdirectory: String) -> URL? {
+        func url(from prefix: String, in subdirectories: [String]) -> URL? {
             guard message.content.hasPrefix(prefix) else { return nil }
             let filename = String(message.content.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !filename.isEmpty else { return nil }
-            let directory = baseDirectory.appendingPathComponent(subdirectory, isDirectory: true)
-            let candidate = directory.appendingPathComponent(filename)
-            return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
+            let fm = FileManager.default
+            for sub in subdirectories {
+                let directory = baseDirectory.appendingPathComponent(sub, isDirectory: true)
+                let candidate = directory.appendingPathComponent(filename)
+                if fm.fileExists(atPath: candidate.path) {
+                    return candidate
+                }
+            }
+            return nil
         }
 
-        if let url = url(from: "[voice] ", subdirectory: "voicenotes") { return .voice(url) }
-        if let url = url(from: "[image] ", subdirectory: "images") { return .image(url) }
-        if let url = url(from: "[file] ", subdirectory: "files") { return .file(url) }
+        if let url = url(from: "[voice] ", in: ["voicenotes/outgoing", "voicenotes/incoming"]) {
+            return .voice(url)
+        }
+        if let url = url(from: "[image] ", in: ["images/outgoing", "images/incoming"]) {
+            return .image(url)
+        }
+        if let url = url(from: "[file] ", in: ["files/outgoing", "files/incoming"]) {
+            return .file(url)
+        }
         return nil
     }
 
