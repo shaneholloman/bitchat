@@ -1564,21 +1564,18 @@ private extension ContentView {
         guard let baseDirectory = applicationFilesDirectory() else { return nil }
         let basePath = baseDirectory.standardizedFileURL.path
 
-        func url(from prefix: String) -> URL? {
+        func url(from prefix: String, subdirectory: String) -> URL? {
             guard message.content.hasPrefix(prefix) else { return nil }
-            let rawPath = String(message.content.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !rawPath.isEmpty else { return nil }
-            let url = URL(fileURLWithPath: rawPath)
-            guard url.isFileURL else { return nil }
-            let standardized = url.standardizedFileURL
-            let path = standardized.path
-            guard path == basePath || path.hasPrefix(basePath + "/") else { return nil }
-            return standardized
+            let filename = String(message.content.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !filename.isEmpty else { return nil }
+            let directory = baseDirectory.appendingPathComponent(subdirectory, isDirectory: true)
+            let candidate = directory.appendingPathComponent(filename)
+            return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
         }
 
-        if let url = url(from: "[voice] ") { return .voice(url) }
-        if let url = url(from: "[image] ") { return .image(url) }
-        if let url = url(from: "[file] ") { return .file(url) }
+        if let url = url(from: "[voice] ", subdirectory: "voicenotes") { return .voice(url) }
+        if let url = url(from: "[image] ", subdirectory: "images") { return .image(url) }
+        if let url = url(from: "[file] ", subdirectory: "files") { return .file(url) }
         return nil
     }
 
