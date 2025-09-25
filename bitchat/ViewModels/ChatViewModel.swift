@@ -2384,7 +2384,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     @MainActor
     func sendVoiceNote(at url: URL) {
         let targetPeer = selectedPrivateChatPeer
-        let message = enqueueMediaMessage(content: "[voice] \(url.path)", targetPeer: targetPeer)
+        let message = enqueueMediaMessage(content: "[voice] \(url.lastPathComponent)", targetPeer: targetPeer)
         let messageID = message.id
         let transferId = makeTransferID(messageID: messageID)
 
@@ -2451,7 +2451,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                 )
                 guard let payload = packet.encode() else { throw MediaSendError.encodingFailed }
                 await MainActor.run {
-                    let message = self.enqueueMediaMessage(content: "[image] \(outputURL.path)", targetPeer: targetPeer)
+                    let message = self.enqueueMediaMessage(content: "[image] \(outputURL.lastPathComponent)", targetPeer: targetPeer)
                     let messageID = message.id
                     let transferId = self.makeTransferID(messageID: messageID)
                     self.registerTransfer(transferId: transferId, messageID: messageID)
@@ -2502,7 +2502,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                 }
 
                 await MainActor.run {
-                    let message = self.enqueueMediaMessage(content: "[file] \(destination.path)", targetPeer: targetPeer)
+                    let message = self.enqueueMediaMessage(content: "[file] \(destination.lastPathComponent)", targetPeer: targetPeer)
                     let messageID = message.id
                     let transferId = self.makeTransferID(messageID: messageID)
                     self.registerTransfer(transferId: transferId, messageID: messageID)

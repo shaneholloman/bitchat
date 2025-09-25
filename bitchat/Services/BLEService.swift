@@ -1649,13 +1649,14 @@ final class BLEService: NSObject {
         }
 
         let marker: String
+        let fileName = destination.lastPathComponent
         switch category {
         case .audio:
-            marker = "[voice] \(destination.path)"
+            marker = "[voice] \(fileName)"
         case .image:
-            marker = "[image] \(destination.path)"
+            marker = "[image] \(fileName)"
         case .other:
-            marker = "[file] \(destination.path)"
+            marker = "[file] \(fileName)"
         }
 
         let isPrivateMessage: Bool = {
