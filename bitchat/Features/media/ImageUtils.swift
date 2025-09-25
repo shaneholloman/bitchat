@@ -3,6 +3,8 @@ import Foundation
 import UIKit
 #else
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 #endif
 
 enum ImageUtilsError: Error {
@@ -52,11 +54,24 @@ enum ImageUtils {
         let scaled = scaledImage(image, maxDimension: maxDimension)
         guard let tiffData = scaled.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
-              let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: compressionQuality]) else {
+              let cgImage = bitmap.cgImage else {
             throw ImageUtilsError.encodingFailed
         }
         let outputURL = try makeOutputURL()
-        try jpegData.write(to: outputURL, options: .atomic)
+        guard let destination = CGImageDestinationCreateWithURL(outputURL as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
+            throw ImageUtilsError.encodingFailed
+        }
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: compressionQuality,
+            kCGImagePropertyExifDictionary: [:],
+            kCGImagePropertyTIFFDictionary: [:],
+            kCGImagePropertyIPTCDictionary: [:],
+            kCGImagePropertyOrientation: 1
+        ]
+        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else {
+            throw ImageUtilsError.encodingFailed
+        }
         return outputURL
     }
 
