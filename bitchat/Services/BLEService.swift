@@ -65,12 +65,14 @@ struct NotificationStreamAssembler {
             if hasSignature { frameLength += BinaryProtocol.signatureSize }
 
             guard frameLength > 0, frameLength <= maxFrameLength else {
+                SecureLogger.error("❌ Notification frame length \(frameLength) invalid (cap=\(maxFrameLength)); resetting stream", category: .session)
                 buffer.removeAll()
                 reset = true
                 break
             }
 
             if buffer.count < frameLength {
+                SecureLogger.warning("⚠️ Incomplete BLE frame: have \(buffer.count)B need \(frameLength)B; scanning for next header", category: .session)
                 if let nextStart = buffer.dropFirst().firstIndex(where: { $0 == 1 || $0 == 2 }) {
                     let dropCount = buffer.distance(from: buffer.startIndex, to: nextStart)
                     if dropCount > 0 {
