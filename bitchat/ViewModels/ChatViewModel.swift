@@ -2404,6 +2404,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         let targetPeer = selectedPrivateChatPeer
         let message = enqueueMediaMessage(content: "[voice] \(url.path)", targetPeer: targetPeer)
         let messageID = message.id
+        let transferId = makeTransferID(messageID: messageID)
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
@@ -2424,13 +2425,12 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                     content: data
                 )
                 guard let payload = packet.encode() else { throw MediaSendError.encodingFailed }
-                let transferId = payload.sha256Hex()
                 await MainActor.run {
                     self.registerTransfer(transferId: transferId, messageID: messageID)
                     if let peerID = targetPeer {
-                        self.meshService.sendFilePrivate(packet, to: peerID)
+                        self.meshService.sendFilePrivate(packet, to: peerID, transferId: transferId)
                     } else {
-                        self.meshService.sendFileBroadcast(packet)
+                        self.meshService.sendFileBroadcast(packet, transferId: transferId)
                     }
                 }
             } catch {
@@ -2468,15 +2468,15 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                     content: data
                 )
                 guard let payload = packet.encode() else { throw MediaSendError.encodingFailed }
-                let transferId = payload.sha256Hex()
                 await MainActor.run {
                     let message = self.enqueueMediaMessage(content: "[image] \(outputURL.path)", targetPeer: targetPeer)
                     let messageID = message.id
+                    let transferId = self.makeTransferID(messageID: messageID)
                     self.registerTransfer(transferId: transferId, messageID: messageID)
                     if let peerID = targetPeer {
-                        self.meshService.sendFilePrivate(packet, to: peerID)
+                        self.meshService.sendFilePrivate(packet, to: peerID, transferId: transferId)
                     } else {
-                        self.meshService.sendFileBroadcast(packet)
+                        self.meshService.sendFileBroadcast(packet, transferId: transferId)
                     }
                 }
             } catch {
@@ -2518,16 +2518,16 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                     try? FileManager.default.removeItem(at: destination)
                     throw MediaSendError.encodingFailed
                 }
-                let transferId = payload.sha256Hex()
 
                 await MainActor.run {
                     let message = self.enqueueMediaMessage(content: "[file] \(destination.path)", targetPeer: targetPeer)
                     let messageID = message.id
+                    let transferId = self.makeTransferID(messageID: messageID)
                     self.registerTransfer(transferId: transferId, messageID: messageID)
                     if let peerID = targetPeer {
-                        self.meshService.sendFilePrivate(packet, to: peerID)
+                        self.meshService.sendFilePrivate(packet, to: peerID, transferId: transferId)
                     } else {
-                        self.meshService.sendFileBroadcast(packet)
+                        self.meshService.sendFileBroadcast(packet, transferId: transferId)
                     }
                 }
             } catch MediaSendError.tooLarge {
@@ -2653,6 +2653,10 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     private func registerTransfer(transferId: String, messageID: String) {
         transferIdToMessageIDs[transferId, default: []].append(messageID)
         messageIDToTransferId[messageID] = transferId
+    }
+
+    private func makeTransferID(messageID: String) -> String {
+        "\(messageID)-\(UUID().uuidString)"
     }
 
     @MainActor
