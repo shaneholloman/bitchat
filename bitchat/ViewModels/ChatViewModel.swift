@@ -2425,12 +2425,18 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     }
 
     @MainActor
-    func sendImage(from sourceURL: URL) {
+    func sendImage(from sourceURL: URL, cleanup: (() -> Void)? = nil) {
         let targetPeer = selectedPrivateChatPeer
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
             var processedURL: URL?
+            defer {
+                if let url = processedURL {
+                    try? FileManager.default.removeItem(at: url)
+                }
+                cleanup?()
+            }
             do {
                 let outputURL = try ImageUtils.processImage(at: sourceURL)
                 processedURL = outputURL
@@ -2465,9 +2471,6 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
                 SecureLogger.error("Image send preparation failed: \(error)", category: .session)
                 await MainActor.run {
                     self.addSystemMessage("Failed to prepare image for sending.")
-                }
-                if let url = processedURL {
-                    try? FileManager.default.removeItem(at: url)
                 }
             }
         }
