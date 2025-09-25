@@ -2317,38 +2317,24 @@ struct ImagePreviewView: View {
         #if os(iOS)
         showExporter = true
         #else
-        do {
-            guard let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else {
-                SecureLogger.error("Missing downloads directory for save", category: .session)
-                return
+        Task { @MainActor in
+            let panel = NSSavePanel()
+            panel.canCreateDirectories = true
+            panel.nameFieldStringValue = url.lastPathComponent
+            panel.prompt = "save"
+            if panel.runModal() == .OK, let destination = panel.url {
+                do {
+                    if FileManager.default.fileExists(atPath: destination.path) {
+                        try FileManager.default.removeItem(at: destination)
+                    }
+                    try FileManager.default.copyItem(at: url, to: destination)
+                } catch {
+                    SecureLogger.error("Failed to save image preview copy: \(error)", category: .session)
+                }
             }
-            let baseName = url.lastPathComponent
-            let destination = uniqueFileURL(in: downloads, fileName: baseName)
-            if FileManager.default.fileExists(atPath: destination.path) {
-                try FileManager.default.removeItem(at: destination)
-            }
-            try FileManager.default.copyItem(at: url, to: destination)
-        } catch {
-            SecureLogger.error("Failed to save image preview copy: \(error)", category: .session)
         }
         #endif
     }
-
-#if !os(iOS)
-    private func uniqueFileURL(in directory: URL, fileName: String) -> URL {
-        var candidate = directory.appendingPathComponent(fileName)
-        let base = (fileName as NSString).deletingPathExtension
-        let ext = (fileName as NSString).pathExtension
-        var counter = 1
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            let suffix = " (\(counter))"
-            let name = ext.isEmpty ? base + suffix : base + suffix + "." + ext
-            candidate = directory.appendingPathComponent(name)
-            counter += 1
-        }
-        return candidate
-    }
-#endif
 
     #if os(iOS)
     private struct FileExportWrapper: UIViewControllerRepresentable {
