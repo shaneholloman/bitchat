@@ -52,9 +52,25 @@ enum ImageUtils {
     #else
     static func processImage(_ image: NSImage, maxDimension: CGFloat = 512) throws -> URL {
         let scaled = scaledImage(image, maxDimension: maxDimension)
-        guard let tiffData = scaled.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let cgImage = bitmap.cgImage else {
+        guard let inputCG = scaled.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw ImageUtilsError.encodingFailed
+        }
+        let width = inputCG.width
+        let height = inputCG.height
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw ImageUtilsError.encodingFailed
+        }
+        context.draw(inputCG, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let cgImage = context.makeImage() else {
             throw ImageUtilsError.encodingFailed
         }
         let outputURL = try makeOutputURL()
