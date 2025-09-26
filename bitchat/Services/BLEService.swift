@@ -1548,8 +1548,153 @@ final class BLEService: NSObject {
                 guard let self = self else { return }
                 self.pendingNoisePayloadsAfterHandshake[peerID, default: []].append(payload)
             }
+<<<<<<< HEAD
             if !noiseService.hasSession(with: peerID) { initiateNoiseHandshake(with: peerID) }
             SecureLogger.debug("🕒 Queued READ receipt for \(peerID) until handshake completes", category: .session)
+=======
+        }
+
+        // Notify UI on main thread
+        notifyUI { [weak self] in
+            guard let self = self else { return }
+            
+            // Get current peer list (after addition)
+            let currentPeerIDs = self.collectionsQueue.sync { Array(self.peers.keys) }
+            
+            // Only notify of connection for new or reconnected peers when it is a direct announce
+            if (packet.ttl == self.messageTTL) && (isNewPeer || isReconnectedPeer) {
+                self.delegate?.didConnectToPeer(peerID)
+                // Schedule initial unicast sync to this peer
+                self.gossipSyncManager?.scheduleInitialSyncToPeer(peerID, delaySeconds: 1.0)
+            }
+            
+            self.requestPeerDataPublish()
+            self.delegate?.didUpdatePeerList(currentPeerIDs)
+        }
+        
+        // Track for sync (include our own and others' announces)
+        gossipSyncManager?.onPublicPacketSeen(packet)
+
+        // Send announce back for bidirectional discovery (only once per peer)
+        let announceBackID = "announce-back-\(peerID)"
+        let shouldSendBack = !messageDeduplicator.contains(announceBackID)
+        if shouldSendBack {
+            messageDeduplicator.markProcessed(announceBackID)
+        }
+        
+        if shouldSendBack {
+            // Reciprocate announce for bidirectional discovery
+            // Force send to ensure the peer receives our announce
+            sendAnnounce(forceSend: true)
+        }
+
+        // Afterglow: on first-seen peers, schedule a short re-announce to push presence one more hop
+        if isNewPeer {
+            let delay = Double.random(in: 0.3...0.6)
+            messageQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.sendAnnounce(forceSend: true)
+            }
+        }
+    }
+
+    // Handle REQUEST_SYNC: decode payload and respond with missing packets via sync manager
+    private func handleRequestSync(_ packet: BitchatPacket, from peerID: String) {
+        guard let req = RequestSyncPacket.decode(from: packet.payload) else {
+            SecureLogger.warning("⚠️ Malformed REQUEST_SYNC from \(peerID)", category: .session)
+            return
+        }
+        gossipSyncManager?.handleRequestSync(fromPeerID: peerID, request: req)
+    }
+    
+    // Mention parsing moved to ChatViewModel
+    
+    private func handleMessage(_ packet: BitchatPacket, from peerID: String) {
+        // Ignore self-origin public messages except when returned via sync (TTL==0).
+        // This allows our own messages to be surfaced when they come back via
+        // the sync path without re-processing regular relayed copies.
+        if peerID == myPeerID && packet.ttl != 0 { return }
+
+        var accepted = false
+        var senderNickname: String = ""
+
+        // Snapshot peers dictionary to avoid mutating-while-iterating crashes when checking collisions.
+        let peersSnapshot = collectionsQueue.sync { peers }
+
+        // If the packet is from ourselves (e.g., recovered via sync TTL==0), accept immediately
+        if peerID == myPeerID {
+            accepted = true
+            senderNickname = myNickname
+        }
+        else if let info = peersSnapshot[peerID], info.isVerifiedNickname {
+            // Known verified peer path
+            accepted = true
+            senderNickname = info.nickname
+            // Handle nickname collisions
+            let hasCollision = peersSnapshot.values.contains { $0.isConnected && $0.nickname == info.nickname && $0.id != peerID } || (myNickname == info.nickname)
+            if hasCollision {
+                senderNickname += "#" + String(peerID.prefix(4))
+            }
+        } else {
+            // Fallback: verify signature using persisted signing key for this peerID's fingerprint prefix
+            if let signature = packet.signature, let packetData = packet.toBinaryDataForSigning() {
+                // Find candidate identities by peerID prefix (16 hex)
+                let candidates = identityManager.getCryptoIdentitiesByPeerIDPrefix(peerID)
+                for candidate in candidates {
+                    if let signingKey = candidate.signingPublicKey,
+                       noiseService.verifySignature(signature, for: packetData, publicKey: signingKey) {
+                        accepted = true
+                        // Prefer persisted social petname or claimed nickname
+                        if let social = identityManager.getSocialIdentity(for: candidate.fingerprint) {
+                            senderNickname = social.localPetname ?? social.claimedNickname
+                        } else {
+                            senderNickname = "anon" + String(peerID.prefix(4))
+                        }
+                        break
+                    }
+                }
+            }
+            // If still not accepted and this is a sync-returned packet (TTL==0),
+            // accept with a generic nickname so history can be restored even for
+            // peers we haven't verified yet.
+            if !accepted && packet.ttl == 0 {
+                accepted = true
+                senderNickname = "anon" + String(peerID.prefix(4))
+            }
+        }
+
+        // Track broadcast messages for sync (treat nil or 0xFF..0xFF as broadcast)
+        let isBroadcastRecipient: Bool = {
+            guard let r = packet.recipientID else { return true }
+            return r.count == 8 && r.allSatisfy { $0 == 0xFF }
+        }()
+        if isBroadcastRecipient && packet.type == MessageType.message.rawValue {
+            gossipSyncManager?.onPublicPacketSeen(packet)
+        }
+
+        guard accepted else {
+            SecureLogger.warning("🚫 Dropping public message from unverified or unknown peer \(peerID.prefix(8))…", category: .security)
+            return
+        }
+
+        guard let content = String(data: packet.payload, encoding: .utf8) else {
+            SecureLogger.error("❌ Failed to decode message payload as UTF-8", category: .session)
+            return
+        }
+        // Determine if we have a direct link to the sender
+        let hasDirectLink: Bool = collectionsQueue.sync {
+            let perUUID = peerToPeripheralUUID[peerID]
+            let perConnected = perUUID != nil && peripherals[perUUID!]?.isConnected == true
+            let hasCentral = centralToPeerID.values.contains(peerID)
+            return perConnected || hasCentral
+        }
+
+        let pathTag = hasDirectLink ? "direct" : "mesh"
+        SecureLogger.debug("💬 [\(senderNickname)] TTL:\(packet.ttl) (\(pathTag)): \(String(content.prefix(50)))\(content.count > 50 ? "..." : "")", category: .session)
+
+        let ts = Date(timeIntervalSince1970: Double(packet.timestamp) / 1000)
+        notifyUI { [weak self] in
+            self?.delegate?.didReceivePublicMessage(from: peerID, nickname: senderNickname, content: content, timestamp: ts)
+>>>>>>> 7c6999c1 (Guard peer map reads on BLE message path)
         }
     }
 
@@ -1559,20 +1704,22 @@ final class BLEService: NSObject {
         var accepted = false
         var senderNickname = ""
 
+        let peersSnapshot = collectionsQueue.sync { peers }
+
         if peerID == myPeerID {
             accepted = true
             senderNickname = myNickname
-        } else if let info = peers[peerID], info.isVerifiedNickname {
+        } else if let info = peersSnapshot[peerID], info.isVerifiedNickname {
             accepted = true
             senderNickname = info.nickname
-            let hasCollision = peers.values.contains { $0.isConnected && $0.nickname == info.nickname && $0.id != peerID } || (myNickname == info.nickname)
+            let hasCollision = peersSnapshot.values.contains { $0.isConnected && $0.nickname == info.nickname && $0.id != peerID } || (myNickname == info.nickname)
             if hasCollision {
                 senderNickname += "#" + String(peerID.prefix(4))
             }
-        } else if let info = peers[peerID], info.isConnected {
+        } else if let info = peersSnapshot[peerID], info.isConnected {
             accepted = true
             senderNickname = info.nickname.isEmpty ? "anon" + String(peerID.prefix(4)) : info.nickname
-            let hasCollision = peers.values.contains { $0.isConnected && $0.nickname == info.nickname && $0.id != peerID } || (myNickname == info.nickname)
+            let hasCollision = peersSnapshot.values.contains { $0.isConnected && $0.nickname == info.nickname && $0.id != peerID } || (myNickname == info.nickname)
             if hasCollision {
                 senderNickname += "#" + String(peerID.prefix(4))
             }
