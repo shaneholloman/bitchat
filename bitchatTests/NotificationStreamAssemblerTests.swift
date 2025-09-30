@@ -127,9 +127,8 @@ struct NotificationStreamAssemblerTests {
             return XCTFail("Failed to encode packet frame")
         }
 
-        let flagsOffset = 1 + 1 + 1 + 8
-        XCTAssertLessThan(flagsOffset, frame.count)
-        let flags = frame[frame.startIndex + flagsOffset]
+        XCTAssertLessThan(BinaryProtocol.Offsets.flags, frame.count)
+        let flags = frame[frame.startIndex + BinaryProtocol.Offsets.flags]
         XCTAssertNotEqual(flags & BinaryProtocol.Flags.isCompressed, 0, "Frame should be compressed for large payloads")
 
         let splitIndex = min(4096, frame.count / 2)
