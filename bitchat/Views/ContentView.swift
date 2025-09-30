@@ -1823,7 +1823,7 @@ private extension ContentView {
             Image(systemName: "waveform.circle.fill")
                 .foregroundColor(.red)
                 .font(.bitchatSystem(size: 20))
-            Text("Recording \(formattedRecordingDuration())")
+            Text("recording \(formattedRecordingDuration())", comment: "Voice note recording duration indicator")
                 .font(.bitchatSystem(size: 13, design: .monospaced))
                 .foregroundColor(.red)
             Spacer()
@@ -2253,7 +2253,7 @@ struct ImagePreviewView: View {
                 Spacer()
                 HStack {
                     Button(action: { dismiss() }) {
-                        Text("close")
+                        Text("close", comment: "Button to dismiss fullscreen media viewer")
                             .font(.bitchatSystem(size: 15, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16)
@@ -2262,7 +2262,7 @@ struct ImagePreviewView: View {
                     }
                     Spacer()
                     Button(action: saveCopy) {
-                        Text("save")
+                        Text("save", comment: "Button to save media to device")
                             .font(.bitchatSystem(size: 15, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16)
