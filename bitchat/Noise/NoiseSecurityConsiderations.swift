@@ -8,7 +8,6 @@
 
 import BitLogger
 import Foundation
-import CryptoKit
 
 // MARK: - Security Constants
 
@@ -52,11 +51,6 @@ struct NoiseSecurityValidator {
     /// Validate handshake message size
     static func validateHandshakeMessageSize(_ data: Data) -> Bool {
         return data.count <= NoiseSecurityConstants.maxHandshakeMessageSize
-    }
-    
-    /// Validate peer ID format using unified validator
-    static func validatePeerID(_ peerID: String) -> Bool {
-        return InputValidator.validatePeerID(peerID)
     }
 }
 

@@ -264,8 +264,7 @@ final class BLEService: NSObject {
     // MARK: - Helpers: IDs, selection, and write backpressure
     private func makeMessageID(for packet: BitchatPacket) -> String {
         let senderID = packet.senderID.hexEncodedString()
-        let digest = SHA256.hash(data: packet.payload)
-        let digestPrefix = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+        let digestPrefix = packet.payload.sha256Hash().prefix(4).hexEncodedString()
         return "\(senderID)-\(packet.timestamp)-\(packet.type)-\(digestPrefix)"
     }
 
@@ -540,21 +539,6 @@ final class BLEService: NSObject {
     }
     #endif
     
-    // MARK: - Helper Functions for Peripheral Management
-    
-    private func getConnectedPeripherals() -> [CBPeripheral] {
-        return peripherals.values
-            .filter { $0.isConnected }
-            .map { $0.peripheral }
-    }
-    
-    private func getPeripheral(for peerID: String) -> CBPeripheral? {
-        guard let uuid = peerToPeripheralUUID[peerID],
-              let state = peripherals[uuid],
-              state.isConnected else { return nil }
-        return state.peripheral
-    }
-    
     // MARK: - Core Public API
     
     func startServices() {
@@ -631,23 +615,13 @@ final class BLEService: NSObject {
     
     func isPeerConnected(_ peerID: String) -> Bool {
         // Accept both 16-hex short IDs and 64-hex Noise keys
-        let shortID: String = {
-            if peerID.count == 64, let key = Data(hexString: peerID) {
-                return PeerIDUtils.derivePeerID(fromPublicKey: key)
-            }
-            return peerID
-        }()
+        let shortID = PeerID(str: peerID).toShort().id
         return collectionsQueue.sync { peers[shortID]?.isConnected ?? false }
     }
 
     func isPeerReachable(_ peerID: String) -> Bool {
         // Accept both 16-hex short IDs and 64-hex Noise keys
-        let shortID: String = {
-            if peerID.count == 64, let key = Data(hexString: peerID) {
-                return PeerIDUtils.derivePeerID(fromPublicKey: key)
-            }
-            return peerID
-        }()
+        let shortID = PeerID(str: peerID).toShort().id
         return collectionsQueue.sync {
             // Must be mesh-attached: at least one live direct link to the mesh
             let meshAttached = peers.values.contains { $0.isConnected }
@@ -777,12 +751,7 @@ final class BLEService: NSObject {
     
     func getPeerFingerprint(_ peerID: String) -> String? {
         return collectionsQueue.sync {
-            if let publicKey = peers[peerID]?.noisePublicKey {
-                // Use the same fingerprinting method as NoiseEncryptionService/UnifiedPeerService (SHA-256 of raw key)
-                let hash = SHA256.hash(data: publicKey)
-                return hash.map { String(format: "%02x", $0) }.joined()
-            }
-            return nil
+            return peers[peerID]?.noisePublicKey?.sha256Fingerprint()
         }
     }
 
@@ -1600,7 +1569,7 @@ final class BLEService: NSObject {
         
         // Verify that the sender's derived ID from the announced noise public key matches the packet senderID
         // This helps detect relayed or spoofed announces. Only warn in release; assert in debug.
-        let derivedFromKey = PeerIDUtils.derivePeerID(fromPublicKey: announcement.noisePublicKey)
+        let derivedFromKey = PeerID(publicKey: announcement.noisePublicKey).id
         if derivedFromKey != peerID {
             SecureLogger.warning("⚠️ Announce sender mismatch: derived \(derivedFromKey.prefix(8))… vs packet \(peerID.prefix(8))…", category: .security)
 
@@ -1705,17 +1674,12 @@ final class BLEService: NSObject {
         }
 
         // Persist cryptographic identity and signing key for robust offline verification
-        do {
-            // Derive fingerprint from Noise public key
-            let hash = SHA256.hash(data: announcement.noisePublicKey)
-            let fingerprint = hash.map { String(format: "%02x", $0) }.joined()
-            identityManager.upsertCryptographicIdentity(
-                fingerprint: fingerprint,
-                noisePublicKey: announcement.noisePublicKey,
-                signingPublicKey: announcement.signingPublicKey,
-                claimedNickname: announcement.nickname
-            )
-        }
+        identityManager.upsertCryptographicIdentity(
+            fingerprint: announcement.noisePublicKey.sha256Fingerprint(),
+            noisePublicKey: announcement.noisePublicKey,
+            signingPublicKey: announcement.signingPublicKey,
+            claimedNickname: announcement.nickname
+        )
 
         // Record this announce for lightweight rebroadcast buffer (exclude self)
         if peerID != myPeerID {
@@ -1812,7 +1776,7 @@ final class BLEService: NSObject {
             // Fallback: verify signature using persisted signing key for this peerID's fingerprint prefix
             if let signature = packet.signature, let packetData = packet.toBinaryDataForSigning() {
                 // Find candidate identities by peerID prefix (16 hex)
-                let candidates = identityManager.getCryptoIdentitiesByPeerIDPrefix(peerID)
+                let candidates = identityManager.getCryptoIdentitiesByPeerIDPrefix(PeerID(str: peerID))
                 for candidate in candidates {
                     if let signingKey = candidate.signingPublicKey,
                        noiseService.verifySignature(signature, for: packetData, publicKey: signingKey) {
