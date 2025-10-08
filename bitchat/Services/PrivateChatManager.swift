@@ -35,7 +35,7 @@ final class PrivateChatManager: ObservableObject {
         selectedPeer = peerID
         
         // Store fingerprint for persistence across reconnections
-        if let fingerprint = meshService?.getFingerprint(for: peerID) {
+        if let fingerprint = meshService?.getFingerprint(for: PeerID(str: peerID)) {
             selectedPeerFingerprint = fingerprint
         }
         
@@ -105,7 +105,7 @@ final class PrivateChatManager: ObservableObject {
         // Create read receipt using the simplified method
         let receipt = ReadReceipt(
             originalMessageID: message.id,
-            readerID: meshService?.myPeerID ?? "",
+            readerID: meshService?.myPeerID.id ?? "",
             readerNickname: meshService?.myNickname ?? ""
         )
         
@@ -113,11 +113,11 @@ final class PrivateChatManager: ObservableObject {
         if let router = messageRouter {
             SecureLogger.debug("PrivateChatManager: sending READ ack for \(message.id.prefix(8))… to \(senderPeerID.id.prefix(8))… via router", category: .session)
             Task { @MainActor in
-                router.sendReadReceipt(receipt, to: senderPeerID.id)
+                router.sendReadReceipt(receipt, to: senderPeerID)
             }
         } else {
             // Fallback: preserve previous behavior
-            meshService?.sendReadReceipt(receipt, to: senderPeerID.id)
+            meshService?.sendReadReceipt(receipt, to: senderPeerID)
         }
     }
 }
