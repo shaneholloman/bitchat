@@ -93,10 +93,47 @@ import UIKit
 /// implementing the BitchatDelegate protocol to handle network events.
 final class ChatViewModel: ObservableObject, BitchatDelegate {
 
-    // MARK: - Spam Filtering
+    // MARK: - Near-Duplicate Detection
 
-    /// Spam filter service using token bucket rate limiting
-    private let spamFilter = SpamFilterService()
+    /// LRU cache for near-duplicate content detection (prevents showing same content multiple times)
+    private var contentLRUMap: [String: Date] = [:]
+    private var contentLRUOrder: [String] = []
+    private let contentLRUCap = TransportConfig.contentLRUCap
+
+    /// Check if we've seen very similar content recently
+    private func isNearDuplicate(content: String, withinSeconds: TimeInterval = 1.0) -> Bool {
+        let key = normalizedContentKey(content)
+        guard let lastSeen = contentLRUMap[key] else { return false }
+        return Date().timeIntervalSince(lastSeen) < withinSeconds
+    }
+
+    /// Record content key in LRU cache
+    private func recordContentKey(_ key: String, timestamp: Date) {
+        if contentLRUMap[key] == nil {
+            contentLRUOrder.append(key)
+        }
+        contentLRUMap[key] = timestamp
+
+        // Evict oldest entries if over capacity
+        if contentLRUOrder.count > contentLRUCap {
+            let overflow = contentLRUOrder.count - contentLRUCap
+            for _ in 0..<overflow {
+                if let victim = contentLRUOrder.first {
+                    contentLRUOrder.removeFirst()
+                    contentLRUMap.removeValue(forKey: victim)
+                }
+            }
+        }
+    }
+
+    /// Normalize content for deduplication (lowercase, collapse whitespace, hash)
+    private func normalizedContentKey(_ content: String) -> String {
+        let trimmed = content.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let collapsed = trimmed.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        let prefix = String(collapsed.prefix(200))
+        let h = prefix.djb2()
+        return String(format: "h:%016llx", h)
+    }
 
     // MARK: - Color Palette
 
@@ -5209,12 +5246,14 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         var batchContentLatest: [String: Date] = [:]
         for m in publicBuffer {
             if seenIDs.contains(m.id) { continue }
-            // Check for near-duplicates using spam filter's content tracking
-            if spamFilter.isNearDuplicate(content: m.content, withinSeconds: 1.0) { continue }
+            // Check for near-duplicates (same content from different paths within 1 second)
+            if isNearDuplicate(content: m.content, withinSeconds: 1.0) { continue }
             if let ts = batchContentLatest[m.content.lowercased()], abs(ts.timeIntervalSince(m.timestamp)) < 1.0 { continue }
             seenIDs.insert(m.id)
             added.append(m)
             batchContentLatest[m.content.lowercased()] = m.timestamp
+            // Record in LRU for future near-dup checks
+            recordContentKey(normalizedContentKey(m.content), timestamp: m.timestamp)
         }
         publicBuffer.removeAll(keepingCapacity: true)
         guard !added.isEmpty else { return }
