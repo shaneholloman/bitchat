@@ -335,6 +335,20 @@ extension BitchatMessage {
     }
 }
 
+// MARK: - System Message Factory
+
+extension BitchatMessage {
+    /// Creates a system message with default values
+    static func system(_ content: String, timestamp: Date = Date()) -> BitchatMessage {
+        return BitchatMessage(
+            sender: "system",
+            content: content,
+            timestamp: timestamp,
+            isRelay: false
+        )
+    }
+}
+
 extension Array where Element == BitchatMessage {
     /// Filters out empty ones and deduplicate by ID while preserving order (from oldest to newest)
     func cleanedAndDeduped() -> [Element] {

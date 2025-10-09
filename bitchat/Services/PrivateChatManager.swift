@@ -28,10 +28,6 @@ final class PrivateChatManager: ObservableObject {
     }
 
     deinit {
-        // Clean state on deinitialization
-        privateChats.removeAll()
-        unreadMessages.removeAll()
-        sentReadReceipts.removeAll()
         SecureLogger.debug("PrivateChatManager deinitialized", category: .session)
     }
 

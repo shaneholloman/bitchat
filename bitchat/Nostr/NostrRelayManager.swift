@@ -111,22 +111,15 @@ final class NostrRelayManager: ObservableObject {
     }
 
     deinit {
-        // Cancel reconnection timer
+        // Clean up timers and active connections
         reconnectionTimer?.invalidate()
-
-        // Cancel all EOSE tracker timers
         for (_, tracker) in eoseTrackers {
             tracker.timer?.invalidate()
         }
-
-        // Close all WebSocket connections
         for (_, task) in connections {
             task.cancel(with: .goingAway, reason: nil)
         }
-
-        // Clear subscriptions
         cancellables.removeAll()
-
         SecureLogger.debug("NostrRelayManager deinitialized", category: .session)
     }
 

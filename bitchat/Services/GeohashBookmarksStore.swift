@@ -1,9 +1,7 @@
 import BitLogger
 import Foundation
 import Combine
-#if os(iOS) || os(macOS)
 import CoreLocation
-#endif
 
 /// Stores a user-maintained list of bookmarked geohash channels.
 /// - Persistence: UserDefaults (JSON string array)
@@ -17,10 +15,8 @@ final class GeohashBookmarksStore: ObservableObject {
     private let storeKey = "locationChannel.bookmarks"
     private let namesStoreKey = "locationChannel.bookmarkNames"
     private var membership: Set<String> = []
-    #if os(iOS) || os(macOS)
     private let geocoder = CLGeocoder()
     private var resolving: Set<String> = []
-    #endif
     
     private let storage: UserDefaults
 
@@ -30,10 +26,8 @@ final class GeohashBookmarksStore: ObservableObject {
     }
 
     deinit {
-        #if os(iOS) || os(macOS)
         // Cancel any pending geocoding operations
         geocoder.cancelGeocode()
-        #endif
         SecureLogger.debug("GeohashBookmarksStore deinitialized", category: .session)
     }
 
@@ -127,7 +121,6 @@ final class GeohashBookmarksStore: ObservableObject {
         let gh = Self.normalize(geohash)
         guard !gh.isEmpty else { return }
         if bookmarkNames[gh] != nil { return }
-        #if os(iOS) || os(macOS)
         if resolving.contains(gh) { return }
         resolving.insert(gh)
         // For very coarse geohashes, sample multiple points to capture multiple admin areas
@@ -158,10 +151,8 @@ final class GeohashBookmarksStore: ObservableObject {
                 }
             }
         }
-        #endif
     }
 
-    #if os(iOS) || os(macOS)
     private func resolveCompositeAdminName(geohash gh: String, points: [CLLocation]) {
         var uniqueAdmins = OrderedSet<String>()
         var idx = 0
@@ -224,7 +215,6 @@ final class GeohashBookmarksStore: ObservableObject {
             return pm.subLocality ?? pm.locality ?? pm.administrativeArea ?? pm.country
         }
     }
-    #endif
 
     #if DEBUG
     /// Testing-only reset helper

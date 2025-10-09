@@ -123,11 +123,6 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     // Computed property for backward compatibility
     var geohashPeople: [GeoPerson] { geohashParticipantsService.geohashPeople }
 
-    // MARK: - System Messaging
-
-    /// Service for creating system messages
-    private let systemMessaging = SystemMessagingService()
-
     // MARK: - Delivery Tracking
 
     /// Service for tracking message delivery status
@@ -4121,9 +4116,9 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         )
     }
 
-    // MARK: - Helper for System Messages (Using SystemMessagingService)
+    // MARK: - Helper for System Messages
     private func addSystemMessage(_ content: String, timestamp: Date = Date()) {
-        let systemMessage = systemMessaging.createSystemMessage(content: content, timestamp: timestamp)
+        let systemMessage = BitchatMessage.system(content, timestamp: timestamp)
         messages.append(systemMessage)
     }
 
@@ -4131,7 +4126,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     /// If mesh is currently active, also append to the visible `messages`.
     @MainActor
     private func addMeshOnlySystemMessage(_ content: String) {
-        let systemMessage = systemMessaging.createSystemMessage(content: content)
+        let systemMessage = BitchatMessage.system(content)
         // Persist to mesh timeline
         meshTimeline.append(systemMessage)
         trimMeshTimelineIfNeeded()
@@ -4146,7 +4141,7 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
     /// Also persists the message into the active channel's backing store so it survives timeline rebinds.
     @MainActor
     func addPublicSystemMessage(_ content: String) {
-        let systemMessage = systemMessaging.createSystemMessage(content: content)
+        let systemMessage = BitchatMessage.system(content)
         // Append to current visible messages
         messages.append(systemMessage)
         // Persist into the backing store for the active channel to survive rebinds
