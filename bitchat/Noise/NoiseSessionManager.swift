@@ -60,23 +60,24 @@ final class NoiseSessionManager {
                 throw NoiseSessionError.alreadyEstablished
             }
             
-            // Remove any existing non-established session
-            if let existingSession = sessions[peerID], !existingSession.isEstablished() {
-                _ = sessions.removeValue(forKey: peerID)
+            let session: NoiseSession
+            
+            if let existingSession = sessions[peerID] {
+                session = existingSession
+                session.reset()
+            } else {
+                // Create new initiator session
+                session = SecureNoiseSession(
+                    peerID: peerID,
+                    role: .initiator,
+                    keychain: keychain,
+                    localStaticKey: localStaticKey
+                )
+                sessions[peerID] = session
             }
             
-            // Create new initiator session
-            let session = SecureNoiseSession(
-                peerID: peerID,
-                role: .initiator,
-                keychain: keychain,
-                localStaticKey: localStaticKey
-            )
-            sessions[peerID] = session
-            
             do {
-                let handshakeData = try session.startHandshake()
-                return handshakeData
+                return try session.startHandshake()
             } catch {
                 // Clean up failed session
                 _ = sessions.removeValue(forKey: peerID)
