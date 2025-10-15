@@ -1593,7 +1593,7 @@ private extension ContentView {
                     isSending = true
                     progress = Double(reached) / Double(total)
                 }
-            default:
+            case .sent, .read, .delivered, .failed:
                 break
             }
         }
