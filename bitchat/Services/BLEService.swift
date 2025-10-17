@@ -1142,9 +1142,19 @@ final class BLEService: NSObject {
 
             // Check cumulative size before storing this fragment
             let currentSize = incomingFragments[key]?.values.reduce(0) { $0 + $1.count } ?? 0
-            guard currentSize + fragmentData.count <= FileTransferLimits.maxPayloadBytes else {
+            let assemblyLimit: Int = {
+                if originalType == MessageType.fileTransfer.rawValue {
+                    // Allow headroom for TLV metadata and binary framing overhead.
+                    return FileTransferLimits.maxFramedFileBytes
+                }
+                return FileTransferLimits.maxPayloadBytes
+            }()
+            guard currentSize + fragmentData.count <= assemblyLimit else {
                 // Exceeds size limit - evict this assembly
-                SecureLogger.warning("🚫 Fragment assembly exceeds size limit (\(currentSize + fragmentData.count) bytes), evicting", category: .security)
+                SecureLogger.warning(
+                    "🚫 Fragment assembly exceeds size limit (\(currentSize + fragmentData.count) bytes > \(assemblyLimit)), evicting",
+                    category: .security
+                )
                 incomingFragments.removeValue(forKey: key)
                 fragmentMetadata.removeValue(forKey: key)
                 shouldReassemble = false
