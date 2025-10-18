@@ -71,7 +71,6 @@ struct ContentView: View {
     @State private var recordingDuration: TimeInterval = 0
     @State private var recordingTimer: Timer?
     @State private var recordingStartDate: Date?
-    @State private var showFileImporter = false
 #if os(iOS)
     @State private var showPhotoPicker = false
     @State private var selectedPhotoPickerItem: PhotosPickerItem?
@@ -216,9 +215,6 @@ struct ContentView: View {
             Task { await handlePhotoSelection(item) }
         }
 #endif
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
-            handleImportResult(result, handler: handleImportedFile)
-        }
         .sheet(isPresented: Binding(
             get: { imagePreviewURL != nil },
             set: { presenting in if !presenting { imagePreviewURL = nil } }
@@ -234,10 +230,6 @@ struct ContentView: View {
                 DispatchQueue.main.async { showPhotoPicker = true }
             }
 #endif
-            Button("File") {
-                showAttachmentActions = false
-                DispatchQueue.main.async { showFileImporter = true }
-            }
             Button("Cancel", role: .cancel) {}
         }
         .alert("Recording Error", isPresented: $showRecordingAlert, actions: {
@@ -1547,11 +1539,10 @@ struct ContentView: View {
 private enum MessageMedia {
     case voice(URL)
     case image(URL)
-    case file(URL)
 
     var url: URL {
         switch self {
-        case .voice(let url), .image(let url), .file(let url):
+        case .voice(let url), .image(let url):
             return url
         }
     }
@@ -1588,13 +1579,6 @@ private extension ContentView {
             let subdir = message.sender == viewModel.nickname ? "images/outgoing" : "images/incoming"
             let url = baseDirectory.appendingPathComponent(subdir, isDirectory: true).appendingPathComponent(filename)
             return .image(url)
-        }
-        if message.content.hasPrefix("[file] ") {
-            let filename = String(message.content.dropFirst("[file] ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !filename.isEmpty else { return nil }
-            let subdir = message.sender == viewModel.nickname ? "files/outgoing" : "files/incoming"
-            let url = baseDirectory.appendingPathComponent(subdir, isDirectory: true).appendingPathComponent(filename)
-            return .file(url)
         }
         return nil
     }
@@ -1687,13 +1671,6 @@ private extension ContentView {
                         } : nil
                     )
                     .frame(maxWidth: 280)
-                case .file(let url):
-                    FileAttachmentView(
-                        url: url,
-                        isSending: state.isSending,
-                        progress: state.progress,
-                        onCancel: cancelAction
-                    )
                 }
             }
         }
@@ -2023,24 +2000,6 @@ private extension ContentView {
         }
     }
 #endif
-
-    func handleImportedFile(url: URL) async {
-        do {
-            let fileManager = FileManager.default
-            let tempDir = fileManager.temporaryDirectory
-            let fileName = url.lastPathComponent.isEmpty ? "attachment" : url.lastPathComponent
-            let destination = tempDir.appendingPathComponent(UUID().uuidString + "_" + fileName)
-            if fileManager.fileExists(atPath: destination.path) {
-                try fileManager.removeItem(at: destination)
-            }
-            try fileManager.copyItem(at: url, to: destination)
-            await MainActor.run {
-                viewModel.sendFileAttachment(from: destination)
-            }
-        } catch {
-            SecureLogger.error("File copy failed before send: \(error)", category: .session)
-        }
-    }
 
     func applicationFilesDirectory() -> URL? {
         // Cache the directory lookup to avoid repeated FileManager calls during view rendering

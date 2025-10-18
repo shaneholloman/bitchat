@@ -1,10 +1,10 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 #if os(iOS)
 import UIKit
 #else
 import AppKit
-import ImageIO
-import UniformTypeIdentifiers
 #endif
 
 enum ImageUtilsError: Error {
@@ -40,19 +40,30 @@ enum ImageUtils {
     #if os(iOS)
     static func processImage(_ image: UIImage, maxDimension: CGFloat = 512) throws -> URL {
         return try autoreleasepool {
+            // Scale the image first
             let scaled = scaledImage(image, maxDimension: maxDimension)
-            var quality = compressionQuality
-            guard var jpegData = scaled.jpegData(compressionQuality: quality) else {
+
+            // Get CGImage from UIImage - this is the key to stripping metadata
+            guard let cgImage = scaled.cgImage else {
                 throw ImageUtilsError.encodingFailed
             }
+
+            // Use CGImageDestination to encode without metadata (same as macOS)
+            var quality = compressionQuality
+            guard var jpegData = encodeJPEG(from: cgImage, quality: quality) else {
+                throw ImageUtilsError.encodingFailed
+            }
+
+            // Compress to target size
             while jpegData.count > targetImageBytes && quality > 0.3 {
                 quality -= 0.1
                 autoreleasepool {
-                    if let next = scaled.jpegData(compressionQuality: quality) {
+                    if let next = encodeJPEG(from: cgImage, quality: quality) {
                         jpegData = next
                     }
                 }
             }
+
             let outputURL = try makeOutputURL()
             try jpegData.write(to: outputURL, options: .atomic)
             return outputURL
@@ -65,11 +76,34 @@ enum ImageUtils {
         guard maxSide > maxDimension else { return image }
         let scale = maxDimension / maxSide
         let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+
+        // Draw into a new context to get a clean CGImage without metadata
         UIGraphicsBeginImageContextWithOptions(newSize, true, 1.0)
         image.draw(in: CGRect(origin: .zero, size: newSize))
         let rendered = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
         return rendered ?? image
+    }
+
+    // Shared EXIF-stripping JPEG encoder for both iOS and macOS
+    private static func encodeJPEG(from cgImage: CGImage, quality: CGFloat) -> Data? {
+        guard let data = CFDataCreateMutable(nil, 0) else {
+            return nil
+        }
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        // Security: Strip ALL metadata (EXIF, GPS, TIFF, IPTC, XMP)
+        // By only specifying compression quality and no metadata keys,
+        // we ensure a clean JPEG with no privacy-leaking information
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: quality
+        ]
+        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else {
+            return nil
+        }
+        return data as Data
     }
     #else
     static func processImage(_ image: NSImage, maxDimension: CGFloat = 512) throws -> URL {
@@ -130,6 +164,7 @@ enum ImageUtils {
         return scaledImage
     }
 
+    // Shared EXIF-stripping JPEG encoder for both iOS and macOS
     private static func encodeJPEG(from cgImage: CGImage, quality: CGFloat) -> Data? {
         guard let data = CFDataCreateMutable(nil, 0) else {
             return nil
@@ -137,8 +172,9 @@ enum ImageUtils {
         guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
             return nil
         }
-        // Security H2: Strip ALL metadata (EXIF, GPS, TIFF, IPTC, XMP)
-        // Don't add any metadata dictionary keys - fresh CGContext ensures clean image
+        // Security: Strip ALL metadata (EXIF, GPS, TIFF, IPTC, XMP)
+        // By only specifying compression quality and no metadata keys,
+        // we ensure a clean JPEG with no privacy-leaking information
         let options: [CFString: Any] = [
             kCGImageDestinationLossyCompressionQuality: quality
         ]

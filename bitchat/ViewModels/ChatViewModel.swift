@@ -2503,65 +2503,6 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         }
     }
 
-    @MainActor
-    func sendFileAttachment(from sourceURL: URL) {
-        let targetPeer = selectedPrivateChatPeer
-
-        Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self = self else { return }
-            defer { try? FileManager.default.removeItem(at: sourceURL) }
-            var destinationURL: URL?
-            do {
-                // Security H1: Check file size BEFORE reading into memory
-                let attrs = try FileManager.default.attributesOfItem(atPath: sourceURL.path)
-                guard let fileSize = attrs[.size] as? Int else {
-                    throw MediaSendError.encodingFailed
-                }
-                guard FileTransferLimits.isValidPayload(fileSize) else {
-                    throw MediaSendError.tooLarge
-                }
-
-                let data = try Data(contentsOf: sourceURL)
-
-                let destination = try self.prepareOutgoingFileCopy(from: sourceURL, data: data)
-                destinationURL = destination
-                let packet = BitchatFilePacket(
-                    fileName: destination.lastPathComponent,
-                    fileSize: UInt64(data.count),
-                    mimeType: self.mimeType(for: destination),
-                    content: data
-                )
-                guard packet.encode() != nil else {
-                    try? FileManager.default.removeItem(at: destination)
-                    throw MediaSendError.encodingFailed
-                }
-
-                await MainActor.run {
-                    let message = self.enqueueMediaMessage(content: "[file] \(destination.lastPathComponent)", targetPeer: targetPeer?.id)
-                    let messageID = message.id
-                    let transferId = self.makeTransferID(messageID: messageID)
-                    self.registerTransfer(transferId: transferId, messageID: messageID)
-                    if let peerID = targetPeer {
-                        self.meshService.sendFilePrivate(packet, to: peerID, transferId: transferId)
-                    } else {
-                        self.meshService.sendFileBroadcast(packet, transferId: transferId)
-                    }
-                }
-            } catch MediaSendError.tooLarge {
-                await MainActor.run {
-                    self.addSystemMessage("File is too large to send.")
-                }
-            } catch {
-                if let destination = destinationURL {
-                    try? FileManager.default.removeItem(at: destination)
-                }
-                SecureLogger.error("File attachment send failed: \(error)", category: .session)
-                await MainActor.run {
-                    self.addSystemMessage("Failed to send file.")
-                }
-            }
-        }
-    }
 
     @MainActor
     func cancelMediaSend(messageID: String) {
@@ -2748,55 +2689,6 @@ final class ChatViewModel: ObservableObject, BitchatDelegate {
         }
     }
 
-    private func prepareOutgoingFileCopy(from sourceURL: URL, data: Data) throws -> URL {
-        let base = try applicationFilesDirectory().appendingPathComponent("files/outgoing", isDirectory: true)
-        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true, attributes: nil)
-
-        let rawName = sourceURL.lastPathComponent
-        let sanitized = sanitizeOutgoingFileName(rawName.isEmpty ? "file" : rawName)
-        var destination = base.appendingPathComponent(sanitized)
-        var counter = 1
-        while FileManager.default.fileExists(atPath: destination.path) {
-            let baseName = (sanitized as NSString).deletingPathExtension
-            let ext = (sanitized as NSString).pathExtension
-            let newName: String
-            if ext.isEmpty {
-                newName = "\(baseName) (\(counter))"
-            } else {
-                newName = "\(baseName) (\(counter)).\(ext)"
-            }
-            destination = base.appendingPathComponent(newName)
-            counter += 1
-        }
-
-        try data.write(to: destination, options: .atomic)
-        return destination
-    }
-
-    private func sanitizeOutgoingFileName(_ name: String) -> String {
-        var candidate = name
-        candidate = candidate.replacingOccurrences(of: "\\", with: "/")
-        candidate = candidate.components(separatedBy: "/").last ?? name
-        candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        if candidate.isEmpty { candidate = "file" }
-        let invalid = CharacterSet(charactersIn: "<>:\"|?*")
-        candidate = candidate.components(separatedBy: invalid).joined(separator: "_")
-        if candidate.isEmpty { candidate = "file" }
-        if (candidate as NSString).pathExtension.isEmpty {
-            candidate += ".bin"
-        }
-        return candidate
-    }
-
-    private func mimeType(for url: URL) -> String {
-        let ext = url.pathExtension.lowercased()
-        if !ext.isEmpty,
-           let type = UTType(filenameExtension: ext),
-           let mime = type.preferredMIMEType {
-            return mime
-        }
-        return "application/octet-stream"
-    }
 
     private func applicationFilesDirectory() throws -> URL {
         let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
