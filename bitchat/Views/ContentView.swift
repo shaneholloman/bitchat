@@ -69,7 +69,9 @@ struct ContentView: View {
     @State private var recordingTimer: Timer?
     @State private var recordingStartDate: Date?
 #if os(iOS)
-    @State private var showCameraPicker = false
+    @State private var showImagePicker = false
+    @State private var imagePickerSourceType: UIImagePickerController.SourceType = .camera
+    @State private var showImageSourcePicker = false
 #endif
     @ScaledMetric(relativeTo: .body) private var headerHeight: CGFloat = 44
     @ScaledMetric(relativeTo: .subheadline) private var headerPeerIconSize: CGFloat = 11
@@ -204,9 +206,9 @@ struct ContentView: View {
             }
         }
 #if os(iOS)
-        .sheet(isPresented: $showCameraPicker) {
-            CameraPickerView { image in
-                showCameraPicker = false
+        .fullScreenCover(isPresented: $showImagePicker) {
+            ImagePickerView(sourceType: imagePickerSourceType) { image in
+                showImagePicker = false
                 if let image = image {
                     Task {
                         do {
@@ -215,11 +217,22 @@ struct ContentView: View {
                                 viewModel.sendImage(from: processedURL)
                             }
                         } catch {
-                            SecureLogger.error("Camera image processing failed: \(error)", category: .session)
+                            SecureLogger.error("Image processing failed: \(error)", category: .session)
                         }
                     }
                 }
             }
+        }
+        .confirmationDialog("Add Photo", isPresented: $showImageSourcePicker, titleVisibility: .visible) {
+            Button("Take Photo") {
+                imagePickerSourceType = .camera
+                showImagePicker = true
+            }
+            Button("Choose from Library") {
+                imagePickerSourceType = .photoLibrary
+                showImagePicker = true
+            }
+            Button("Cancel", role: .cancel) {}
         }
 #endif
         .sheet(isPresented: Binding(
@@ -1805,7 +1818,7 @@ private extension ContentView {
     var attachmentButton: some View {
         Button(action: {
             #if os(iOS)
-            showCameraPicker = true
+            showImageSourcePicker = true
             #endif
         }) {
             Image(systemName: "camera.circle.fill")
@@ -1814,7 +1827,7 @@ private extension ContentView {
                 .frame(width: 36, height: 36)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Take photo")
+        .accessibilityLabel("Add photo")
     }
 
     var sendOrMicButton: some View {
@@ -2128,15 +2141,17 @@ struct ImagePreviewView: View {
 }
 
 #if os(iOS)
-// MARK: - Camera Picker
-struct CameraPickerView: UIViewControllerRepresentable {
+// MARK: - Image Picker (Camera or Photo Library)
+struct ImagePickerView: UIViewControllerRepresentable {
+    let sourceType: UIImagePickerController.SourceType
     let completion: (UIImage?) -> Void
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
-        picker.sourceType = .camera
+        picker.sourceType = sourceType
         picker.delegate = context.coordinator
         picker.allowsEditing = false
+        picker.modalPresentationStyle = .fullScreen
         return picker
     }
 
