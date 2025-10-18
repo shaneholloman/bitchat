@@ -71,6 +71,8 @@ struct ContentView: View {
 #if os(iOS)
     @State private var showImagePicker = false
     @State private var imagePickerSourceType: UIImagePickerController.SourceType = .camera
+#else
+    @State private var showMacImagePicker = false
 #endif
     @ScaledMetric(relativeTo: .body) private var headerHeight: CGFloat = 44
     @ScaledMetric(relativeTo: .subheadline) private var headerPeerIconSize: CGFloat = 11
@@ -224,6 +226,25 @@ struct ContentView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
             .ignoresSafeArea()
+        }
+#endif
+#if os(macOS)
+        .sheet(isPresented: $showMacImagePicker) {
+            MacImagePickerView { url in
+                showMacImagePicker = false
+                if let url = url {
+                    Task {
+                        do {
+                            let processedURL = try ImageUtils.processImage(at: url)
+                            await MainActor.run {
+                                viewModel.sendImage(from: processedURL)
+                            }
+                        } catch {
+                            SecureLogger.error("Image processing failed: \(error)", category: .session)
+                        }
+                    }
+                }
+            }
         }
 #endif
         .sheet(isPresented: Binding(
@@ -1825,10 +1846,14 @@ private extension ContentView {
             }
             .accessibilityLabel("Tap for library, long press for camera")
         #else
-        Image(systemName: "camera.circle.fill")
-            .font(.bitchatSystem(size: 24))
-            .foregroundColor(composerAccentColor)
-            .frame(width: 36, height: 36)
+        Button(action: { showMacImagePicker = true }) {
+            Image(systemName: "photo.circle.fill")
+                .font(.bitchatSystem(size: 24))
+                .foregroundColor(composerAccentColor)
+                .frame(width: 36, height: 36)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Choose photo")
         #endif
     }
 
@@ -2184,6 +2209,44 @@ struct ImagePickerView: UIViewControllerRepresentable {
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             completion(nil)
         }
+    }
+}
+#endif
+
+#if os(macOS)
+// MARK: - macOS Image Picker
+struct MacImagePickerView: View {
+    let completion: (URL?) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Choose an image")
+                .font(.headline)
+
+            Button("Select Image") {
+                let panel = NSOpenPanel()
+                panel.allowsMultipleSelection = false
+                panel.canChooseDirectories = false
+                panel.canChooseFiles = true
+                panel.allowedContentTypes = [.image, .png, .jpeg, .heic]
+                panel.message = "Choose an image to send"
+
+                if panel.runModal() == .OK {
+                    completion(panel.url)
+                } else {
+                    dismiss()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+
+            Button("Cancel") {
+                completion(nil)
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(40)
+        .frame(minWidth: 300, minHeight: 150)
     }
 }
 #endif
