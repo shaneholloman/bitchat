@@ -71,7 +71,6 @@ struct ContentView: View {
 #if os(iOS)
     @State private var showImagePicker = false
     @State private var imagePickerSourceType: UIImagePickerController.SourceType = .camera
-    @State private var showImageSourcePicker = false
 #endif
     @ScaledMetric(relativeTo: .body) private var headerHeight: CGFloat = 44
     @ScaledMetric(relativeTo: .subheadline) private var headerPeerIconSize: CGFloat = 11
@@ -222,17 +221,6 @@ struct ContentView: View {
                     }
                 }
             }
-        }
-        .confirmationDialog("Add Photo", isPresented: $showImageSourcePicker, titleVisibility: .visible) {
-            Button("Take Photo") {
-                imagePickerSourceType = .camera
-                showImagePicker = true
-            }
-            Button("Choose from Library") {
-                imagePickerSourceType = .photoLibrary
-                showImagePicker = true
-            }
-            Button("Cancel", role: .cancel) {}
         }
 #endif
         .sheet(isPresented: Binding(
@@ -1816,18 +1804,29 @@ private extension ContentView {
     }
 
     var attachmentButton: some View {
-        Button(action: {
-            #if os(iOS)
-            showImageSourcePicker = true
-            #endif
-        }) {
-            Image(systemName: "camera.circle.fill")
-                .font(.bitchatSystem(size: 24))
-                .foregroundColor(composerAccentColor)
-                .frame(width: 36, height: 36)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Add photo")
+        #if os(iOS)
+        Image(systemName: "camera.circle.fill")
+            .font(.bitchatSystem(size: 24))
+            .foregroundColor(composerAccentColor)
+            .frame(width: 36, height: 36)
+            .contentShape(Circle())
+            .onTapGesture {
+                // Tap = Photo Library
+                imagePickerSourceType = .photoLibrary
+                showImagePicker = true
+            }
+            .onLongPressGesture(minimumDuration: 0.3) {
+                // Long press = Camera
+                imagePickerSourceType = .camera
+                showImagePicker = true
+            }
+            .accessibilityLabel("Tap for library, long press for camera")
+        #else
+        Image(systemName: "camera.circle.fill")
+            .font(.bitchatSystem(size: 24))
+            .foregroundColor(composerAccentColor)
+            .frame(width: 36, height: 36)
+        #endif
     }
 
     var sendOrMicButton: some View {
