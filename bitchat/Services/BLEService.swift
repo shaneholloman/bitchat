@@ -3414,8 +3414,8 @@ extension BLEService {
         let originalType = packet.payload[12]
         let fragmentData = packet.payload.suffix(from: 13)
 
-        // Sanity checks
-        guard total > 0 && index >= 0 && index < total else { return }
+        // Sanity checks - add reasonable upper bound on total to prevent DoS
+        guard total > 0 && total <= 10000 && index >= 0 && index < total else { return }
 
         // Store fragment
         let key = FragmentKey(sender: senderU64, id: fragU64)
@@ -3431,6 +3431,27 @@ extension BLEService {
             incomingFragments[key] = [:]
             fragmentMetadata[key] = (originalType, total, Date())
         }
+
+        // Check cumulative size before storing this fragment
+        let currentSize = incomingFragments[key]?.values.reduce(0) { $0 + $1.count } ?? 0
+        let assemblyLimit: Int = {
+            if originalType == MessageType.fileTransfer.rawValue {
+                // Allow headroom for TLV metadata and binary framing overhead.
+                return FileTransferLimits.maxFramedFileBytes
+            }
+            return FileTransferLimits.maxPayloadBytes
+        }()
+        guard currentSize + fragmentData.count <= assemblyLimit else {
+            // Exceeds size limit - evict this assembly
+            SecureLogger.warning(
+                "🚫 Fragment assembly exceeds size limit (\(currentSize + fragmentData.count) bytes > \(assemblyLimit)), evicting",
+                category: .security
+            )
+            incomingFragments.removeValue(forKey: key)
+            fragmentMetadata.removeValue(forKey: key)
+            return
+        }
+
         incomingFragments[key]?[index] = Data(fragmentData)
 
         // Check if complete
