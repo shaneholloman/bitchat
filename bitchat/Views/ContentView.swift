@@ -15,9 +15,6 @@ import AppKit
 #endif
 import UniformTypeIdentifiers
 import BitLogger
-#if canImport(PhotosUI)
-import PhotosUI
-#endif
 
 // MARK: - Supporting Types
 
@@ -72,10 +69,8 @@ struct ContentView: View {
     @State private var recordingTimer: Timer?
     @State private var recordingStartDate: Date?
 #if os(iOS)
-    @State private var showPhotoPicker = false
-    @State private var selectedPhotoPickerItem: PhotosPickerItem?
+    @State private var showCameraPicker = false
 #endif
-    @State private var showAttachmentActions = false
     @ScaledMetric(relativeTo: .body) private var headerHeight: CGFloat = 44
     @ScaledMetric(relativeTo: .subheadline) private var headerPeerIconSize: CGFloat = 11
     @ScaledMetric(relativeTo: .subheadline) private var headerPeerCountFontSize: CGFloat = 12
@@ -209,10 +204,22 @@ struct ContentView: View {
             }
         }
 #if os(iOS)
-        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoPickerItem, matching: .images)
-        .onChange(of: selectedPhotoPickerItem) { newItem in
-            guard let item = newItem else { return }
-            Task { await handlePhotoSelection(item) }
+        .sheet(isPresented: $showCameraPicker) {
+            CameraPickerView { image in
+                showCameraPicker = false
+                if let image = image {
+                    Task {
+                        do {
+                            let processedURL = try ImageUtils.processImage(image)
+                            await MainActor.run {
+                                viewModel.sendImage(from: processedURL)
+                            }
+                        } catch {
+                            SecureLogger.error("Camera image processing failed: \(error)", category: .session)
+                        }
+                    }
+                }
+            }
         }
 #endif
         .sheet(isPresented: Binding(
@@ -222,15 +229,6 @@ struct ContentView: View {
             if let url = imagePreviewURL {
                 ImagePreviewView(url: url)
             }
-        }
-        .confirmationDialog("Attach", isPresented: $showAttachmentActions, titleVisibility: .visible) {
-#if os(iOS)
-            Button("Image") {
-                showAttachmentActions = false
-                DispatchQueue.main.async { showPhotoPicker = true }
-            }
-#endif
-            Button("Cancel", role: .cancel) {}
         }
         .alert("Recording Error", isPresented: $showRecordingAlert, actions: {
             Button("OK", role: .cancel) {}
@@ -1805,13 +1803,18 @@ private extension ContentView {
     }
 
     var attachmentButton: some View {
-        Button(action: { showAttachmentActions = true }) {
-            Image(systemName: "paperclip.circle.fill")
+        Button(action: {
+            #if os(iOS)
+            showCameraPicker = true
+            #endif
+        }) {
+            Image(systemName: "camera.circle.fill")
                 .font(.bitchatSystem(size: 24))
                 .foregroundColor(composerAccentColor)
                 .frame(width: 36, height: 36)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Take photo")
     }
 
     var sendOrMicButton: some View {
@@ -1980,26 +1983,6 @@ private extension ContentView {
         }
     }
 
-#if os(iOS)
-    func handlePhotoSelection(_ item: PhotosPickerItem) async {
-        defer { Task { @MainActor in selectedPhotoPickerItem = nil } }
-        do {
-            if let data = try await item.loadTransferable(type: Data.self) {
-                let tempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(UUID().uuidString)
-                    .appendingPathExtension("jpg")
-                try data.write(to: tempURL, options: Data.WritingOptions.atomic)
-                await MainActor.run {
-                    viewModel.sendImage(from: tempURL) {
-                        try? FileManager.default.removeItem(at: tempURL)
-                    }
-                }
-            }
-        } catch {
-            SecureLogger.error("Photo picker load failed: \(error)", category: .session)
-        }
-    }
-#endif
 
     func applicationFilesDirectory() -> URL? {
         // Cache the directory lookup to avoid repeated FileManager calls during view rendering
@@ -2143,3 +2126,41 @@ struct ImagePreviewView: View {
     }
 #endif
 }
+
+#if os(iOS)
+// MARK: - Camera Picker
+struct CameraPickerView: UIViewControllerRepresentable {
+    let completion: (UIImage?) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        picker.allowsEditing = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(completion: completion)
+    }
+
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let completion: (UIImage?) -> Void
+
+        init(completion: @escaping (UIImage?) -> Void) {
+            self.completion = completion
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            let image = info[.originalImage] as? UIImage
+            completion(image)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            completion(nil)
+        }
+    }
+}
+#endif
