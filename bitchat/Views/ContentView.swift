@@ -205,7 +205,7 @@ struct ContentView: View {
             }
         }
 #if os(iOS)
-        .fullScreenCover(isPresented: $showImagePicker) {
+        .sheet(isPresented: $showImagePicker) {
             ImagePickerView(sourceType: imagePickerSourceType) { image in
                 showImagePicker = false
                 if let image = image {
@@ -221,6 +221,9 @@ struct ContentView: View {
                     }
                 }
             }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.hidden)
+            .ignoresSafeArea()
         }
 #endif
         .sheet(isPresented: Binding(
