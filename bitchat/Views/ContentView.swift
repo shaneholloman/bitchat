@@ -2154,6 +2154,9 @@ struct ImagePickerView: UIViewControllerRepresentable {
         // Use standard full screen - iOS handles safe areas automatically
         picker.modalPresentationStyle = .fullScreen
 
+        // Force dark mode to make safe area bars black instead of white
+        picker.overrideUserInterfaceStyle = .dark
+
         return picker
     }
 
