@@ -2151,7 +2151,14 @@ struct ImagePickerView: UIViewControllerRepresentable {
         picker.sourceType = sourceType
         picker.delegate = context.coordinator
         picker.allowsEditing = false
-        picker.modalPresentationStyle = .fullScreen
+
+        // Configure for true full-screen presentation
+        picker.modalPresentationStyle = .overFullScreen
+        if sourceType == .camera {
+            picker.showsCameraControls = true
+            picker.cameraOverlayView = nil
+        }
+
         return picker
     }
 
