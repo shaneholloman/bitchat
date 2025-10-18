@@ -38,7 +38,6 @@ struct ContentView: View {
     @EnvironmentObject var viewModel: ChatViewModel
     @ObservedObject private var locationManager = LocationChannelManager.shared
     @ObservedObject private var bookmarks = GeohashBookmarksStore.shared
-    @ObservedObject private var notesCounter = LocationNotesCounter.shared
     @State private var messageText = ""
     @FocusState private var isTextFieldFocused: Bool
     @Environment(\.colorScheme) var colorScheme
@@ -1349,10 +1348,9 @@ struct ContentView: View {
                         showLocationNotes = true
                     }) {
                         HStack(alignment: .center, spacing: 4) {
-                            let hasNotes = (notesCounter.count ?? 0) > 0
-                            Image(systemName: "long.text.page.and.pencil")
+                            Image(systemName: "note.text")
                                 .font(.bitchatSystem(size: 12))
-                                .foregroundColor(hasNotes ? textColor : Color.gray)
+                                .foregroundColor(Color.orange.opacity(0.8))
                                 .padding(.top, 1)
                         }
                         .fixedSize(horizontal: true, vertical: false)
@@ -1454,7 +1452,7 @@ struct ContentView: View {
         }) {
             Group {
                 if let gh = notesGeohash ?? LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
-                    LocationNotesView(geohash: gh, onNotesCountChanged: { cnt in sheetNotesCount = cnt })
+                    LocationNotesView(geohash: gh)
                         .environmentObject(viewModel)
                 } else {
                     VStack(spacing: 12) {
@@ -1511,7 +1509,6 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            updateNotesCounterSubscription()
             if case .mesh = locationManager.selectedChannel,
                locationManager.permissionState == .authorized,
                LocationChannelManager.shared.availableChannels.isEmpty {
@@ -1519,16 +1516,13 @@ struct ContentView: View {
             }
         }
         .onChange(of: locationManager.selectedChannel) { _ in
-            updateNotesCounterSubscription()
             if case .mesh = locationManager.selectedChannel,
                locationManager.permissionState == .authorized,
                LocationChannelManager.shared.availableChannels.isEmpty {
                 LocationChannelManager.shared.refreshChannels()
             }
         }
-        .onChange(of: locationManager.availableChannels) { _ in updateNotesCounterSubscription() }
         .onChange(of: locationManager.permissionState) { _ in
-            updateNotesCounterSubscription()
             if case .mesh = locationManager.selectedChannel,
                locationManager.permissionState == .authorized,
                LocationChannelManager.shared.availableChannels.isEmpty {
@@ -1543,34 +1537,6 @@ struct ContentView: View {
         .background(backgroundColor.opacity(0.95))
     }
 
-}
-
-// MARK: - Notes Counter Subscription Helper
-extension ContentView {
-    private func updateNotesCounterSubscription() {
-        switch locationManager.selectedChannel {
-        case .mesh:
-            // Ensure we have a fresh one-shot location fix so building geohash is current
-            if locationManager.permissionState == .authorized {
-                LocationChannelManager.shared.refreshChannels()
-            }
-            if locationManager.permissionState == .authorized {
-                if let building = LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
-                    LocationNotesCounter.shared.subscribe(geohash: building)
-                } else {
-                    // Keep existing subscription if we had one to avoid flicker
-                    // Only cancel if we have no known geohash
-                    if LocationNotesCounter.shared.geohash == nil {
-                        LocationNotesCounter.shared.cancel()
-                    }
-                }
-            } else {
-                LocationNotesCounter.shared.cancel()
-            }
-        case .location:
-            LocationNotesCounter.shared.cancel()
-        }
-    }
 }
 
 // MARK: - Helper Views
