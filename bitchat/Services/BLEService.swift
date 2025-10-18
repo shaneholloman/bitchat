@@ -3417,63 +3417,81 @@ extension BLEService {
         // Sanity checks - add reasonable upper bound on total to prevent DoS
         guard total > 0 && total <= 10000 && index >= 0 && index < total else { return }
 
-        // Store fragment
+        // Compute fragment key for this assembly
         let key = FragmentKey(sender: senderU64, id: fragU64)
-        if incomingFragments[key] == nil {
-            // Cap in-flight assemblies to prevent memory/battery blowups
-            if incomingFragments.count >= maxInFlightAssemblies {
-                // Evict the oldest assembly by timestamp
-                if let oldest = fragmentMetadata.min(by: { $0.value.timestamp < $1.value.timestamp })?.key {
-                    incomingFragments.removeValue(forKey: oldest)
-                    fragmentMetadata.removeValue(forKey: oldest)
+
+        // Critical section: Store fragment and check completion status
+        var shouldReassemble: Bool = false
+        var fragmentsToReassemble: [Int: Data]? = nil
+
+        collectionsQueue.sync(flags: .barrier) {
+            if incomingFragments[key] == nil {
+                // Cap in-flight assemblies to prevent memory/battery blowups
+                if incomingFragments.count >= maxInFlightAssemblies {
+                    // Evict the oldest assembly by timestamp
+                    if let oldest = fragmentMetadata.min(by: { $0.value.timestamp < $1.value.timestamp })?.key {
+                        incomingFragments.removeValue(forKey: oldest)
+                        fragmentMetadata.removeValue(forKey: oldest)
+                    }
                 }
+                incomingFragments[key] = [:]
+                fragmentMetadata[key] = (originalType, total, Date())
             }
-            incomingFragments[key] = [:]
-            fragmentMetadata[key] = (originalType, total, Date())
-        }
 
-        // Check cumulative size before storing this fragment
-        let currentSize = incomingFragments[key]?.values.reduce(0) { $0 + $1.count } ?? 0
-        let assemblyLimit: Int = {
-            if originalType == MessageType.fileTransfer.rawValue {
-                // Allow headroom for TLV metadata and binary framing overhead.
-                return FileTransferLimits.maxFramedFileBytes
-            }
-            return FileTransferLimits.maxPayloadBytes
-        }()
-        let projectedSize = currentSize + fragmentData.count
-        guard projectedSize <= assemblyLimit else {
-            // Exceeds size limit - evict this assembly
-            SecureLogger.warning(
-                "🚫 Fragment assembly exceeds size limit (\(projectedSize) bytes > \(assemblyLimit)), evicting. Type=\(originalType) Index=\(index)/\(total)",
-                category: .security
-            )
-            incomingFragments.removeValue(forKey: key)
-            fragmentMetadata.removeValue(forKey: key)
-            return
-        }
-
-        incomingFragments[key]?[index] = Data(fragmentData)
-
-        // Check if complete
-        if let fragments = incomingFragments[key],
-           fragments.count == total {
-            // Reassemble
-            var reassembled = Data()
-            for i in 0..<total {
-                if let fragment = fragments[i] {
-                    reassembled.append(fragment)
+            // Check cumulative size before storing this fragment
+            let currentSize = incomingFragments[key]?.values.reduce(0) { $0 + $1.count } ?? 0
+            let assemblyLimit: Int = {
+                if originalType == MessageType.fileTransfer.rawValue {
+                    // Allow headroom for TLV metadata and binary framing overhead.
+                    return FileTransferLimits.maxFramedFileBytes
                 }
+                return FileTransferLimits.maxPayloadBytes
+            }()
+            let projectedSize = currentSize + fragmentData.count
+            guard projectedSize <= assemblyLimit else {
+                // Exceeds size limit - evict this assembly
+                SecureLogger.warning(
+                    "🚫 Fragment assembly exceeds size limit (\(projectedSize) bytes > \(assemblyLimit)), evicting. Type=\(originalType) Index=\(index)/\(total)",
+                    category: .security
+                )
+                incomingFragments.removeValue(forKey: key)
+                fragmentMetadata.removeValue(forKey: key)
+                shouldReassemble = false
+                fragmentsToReassemble = nil
+                return
             }
 
-            // Decode the original packet bytes we reassembled, so flags/compression are preserved
-            if let originalPacket = BinaryProtocol.decode(reassembled) {
-                handleReceivedPacket(originalPacket, from: peerID)
+            incomingFragments[key]?[index] = Data(fragmentData)
+
+            // Check if complete
+            if let fragments = incomingFragments[key], fragments.count == total {
+                shouldReassemble = true
+                fragmentsToReassemble = fragments
             } else {
-                SecureLogger.error("❌ Failed to decode reassembled packet (type=\(originalType), total=\(total))", category: .session)
+                shouldReassemble = false
+                fragmentsToReassemble = nil
             }
+        }
 
-            // Cleanup
+        // Heavy work outside lock: reassemble and decode
+        guard shouldReassemble, let fragments = fragmentsToReassemble else { return }
+
+        var reassembled = Data()
+        for i in 0..<total {
+            if let fragment = fragments[i] {
+                reassembled.append(fragment)
+            }
+        }
+
+        // Decode the original packet bytes we reassembled, so flags/compression are preserved
+        if let originalPacket = BinaryProtocol.decode(reassembled) {
+            handleReceivedPacket(originalPacket, from: peerID)
+        } else {
+            SecureLogger.error("❌ Failed to decode reassembled packet (type=\(originalType), total=\(total))", category: .session)
+        }
+
+        // Critical section: Cleanup completed assembly
+        collectionsQueue.sync(flags: .barrier) {
             incomingFragments.removeValue(forKey: key)
             fragmentMetadata.removeValue(forKey: key)
         }
