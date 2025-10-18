@@ -3395,7 +3395,7 @@ extension BLEService {
         if peerID == myPeerID {
             return
         }
-        
+
         // Minimum header: 8 bytes ID + 2 index + 2 total + 1 type
         guard packet.payload.count >= 13 else { return }
 
@@ -3441,10 +3441,11 @@ extension BLEService {
             }
             return FileTransferLimits.maxPayloadBytes
         }()
-        guard currentSize + fragmentData.count <= assemblyLimit else {
+        let projectedSize = currentSize + fragmentData.count
+        guard projectedSize <= assemblyLimit else {
             // Exceeds size limit - evict this assembly
             SecureLogger.warning(
-                "🚫 Fragment assembly exceeds size limit (\(currentSize + fragmentData.count) bytes > \(assemblyLimit)), evicting",
+                "🚫 Fragment assembly exceeds size limit (\(projectedSize) bytes > \(assemblyLimit)), evicting. Type=\(originalType) Index=\(index)/\(total)",
                 category: .security
             )
             incomingFragments.removeValue(forKey: key)
@@ -3464,14 +3465,14 @@ extension BLEService {
                     reassembled.append(fragment)
                 }
             }
-            
+
             // Decode the original packet bytes we reassembled, so flags/compression are preserved
             if let originalPacket = BinaryProtocol.decode(reassembled) {
                 handleReceivedPacket(originalPacket, from: peerID)
             } else {
                 SecureLogger.error("❌ Failed to decode reassembled packet (type=\(originalType), total=\(total))", category: .session)
             }
-            
+
             // Cleanup
             incomingFragments.removeValue(forKey: key)
             fragmentMetadata.removeValue(forKey: key)

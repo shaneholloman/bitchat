@@ -333,7 +333,8 @@ struct BinaryProtocol {
                     originalSize = Int(rawSize)
                 }
                 // Guard to keep decompression bounded to sane BLE payload limits
-                guard originalSize >= 0 && originalSize <= FileTransferLimits.maxPayloadBytes else { return nil }
+                // Use maxFramedFileBytes to account for TLV overhead in file transfer payloads
+                guard originalSize >= 0 && originalSize <= FileTransferLimits.maxFramedFileBytes else { return nil }
                 let compressedSize = payloadLength - lengthFieldBytes
                 guard compressedSize >= 0, let compressed = readData(compressedSize) else { return nil }
 
