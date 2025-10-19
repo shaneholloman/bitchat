@@ -27,6 +27,37 @@ private struct MessageDisplayItem: Identifiable {
     let message: BitchatMessage
 }
 
+// MARK: - Sheet Management
+
+private enum SheetType: Identifiable {
+    case peopleOrChat
+    case appInfo
+    case fingerprint(PeerID)
+    case imagePreview(URL)
+    case verification
+    case locationChannels
+    case locationNotes
+
+    var id: String {
+        switch self {
+        case .peopleOrChat:
+            return "peopleOrChat"
+        case .appInfo:
+            return "appInfo"
+        case .fingerprint(let peerID):
+            return "fingerprint-\(peerID.id)"
+        case .imagePreview(let url):
+            return "imagePreview-\(url.path)"
+        case .verification:
+            return "verification"
+        case .locationChannels:
+            return "locationChannels"
+        case .locationNotes:
+            return "locationNotes"
+        }
+    }
+}
+
 // MARK: - Main Content View
 
 struct ContentView: View {
@@ -121,8 +152,96 @@ struct ContentView: View {
             return viewModel.visibleGeohashPeople().count
         }
     }
-    
-    
+
+    // MARK: - Sheet Management
+
+    /// Determines which sheet should currently be active based on all state variables.
+    /// Priority is determined by the order of checks (first match wins).
+    private var currentSheet: SheetType? {
+        // People or private chat sheet (highest priority - primary navigation)
+        if showSidebar || viewModel.selectedPrivateChatPeer != nil {
+            return .peopleOrChat
+        }
+
+        // Verification sheet
+        if showVerifySheet {
+            return .verification
+        }
+
+        // Location channels sheet
+        if showLocationChannelsSheet {
+            return .locationChannels
+        }
+
+        // Location notes sheet
+        if showLocationNotes {
+            return .locationNotes
+        }
+
+        // App info sheet
+        if showAppInfo {
+            return .appInfo
+        }
+
+        // Fingerprint sheet
+        if let peerID = viewModel.showingFingerprintFor {
+            return .fingerprint(peerID)
+        }
+
+        // Image preview sheet
+        if let url = imagePreviewURL {
+            return .imagePreview(url)
+        }
+
+        return nil
+    }
+
+    /// Binding that maps between the SheetType enum and the individual state variables.
+    /// When a sheet is presented, it reads from currentSheet.
+    /// When a sheet is dismissed, it clears all related state variables.
+    private var sheetBinding: Binding<SheetType?> {
+        Binding(
+            get: {
+                return currentSheet
+            },
+            set: { newSheet in
+                // First, clear all sheet-related state to ensure clean transitions
+                showSidebar = false
+                if viewModel.selectedPrivateChatPeer != nil {
+                    viewModel.endPrivateChat()
+                }
+                showAppInfo = false
+                viewModel.showingFingerprintFor = nil
+                imagePreviewURL = nil
+                showVerifySheet = false
+                showLocationChannelsSheet = false
+                showLocationNotes = false
+                notesGeohash = nil
+
+                // Now set the new sheet state if one was requested
+                if let sheet = newSheet {
+                    switch sheet {
+                    case .peopleOrChat:
+                        showSidebar = true
+                    case .appInfo:
+                        showAppInfo = true
+                    case .fingerprint(let peerID):
+                        viewModel.showingFingerprintFor = peerID
+                    case .imagePreview(let url):
+                        imagePreviewURL = url
+                    case .verification:
+                        showVerifySheet = true
+                    case .locationChannels:
+                        showLocationChannelsSheet = true
+                    case .locationNotes:
+                        showLocationNotes = true
+                    }
+                }
+            }
+        )
+    }
+
+
     private struct PrivateHeaderContext {
         let headerPeerID: PeerID
         let peer: BitchatPeer?
@@ -132,7 +251,7 @@ struct ContentView: View {
 
 // MARK: - Body
 
-    var body: some View {
+    private var mainContent: some View {
         VStack(spacing: 0) {
             mainHeaderView
                 .onAppear {
@@ -176,34 +295,104 @@ struct ContentView: View {
                 showSidebar = true
             }
         }
-        .sheet(
-            isPresented: Binding(
-                get: { showSidebar || viewModel.selectedPrivateChatPeer != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        showSidebar = false
-                        viewModel.endPrivateChat()
+    }
+
+    var body: some View {
+        mainContent
+        // MARK: - Consolidated Sheet Presentation
+        .sheet(item: sheetBinding) { sheet in
+            switch sheet {
+            case .peopleOrChat:
+                peopleSheetView
+
+            case .appInfo:
+                AppInfoView()
+                    .onAppear { viewModel.isAppInfoPresented = true }
+                    .onDisappear { viewModel.isAppInfoPresented = false }
+
+            case .fingerprint(let peerID):
+                FingerprintView(viewModel: viewModel, peerID: peerID)
+
+            case .imagePreview(let url):
+                ImagePreviewView(url: url)
+
+            case .verification:
+                VerificationSheetView(isPresented: $showVerifySheet)
+                    .environmentObject(viewModel)
+
+            case .locationChannels:
+                LocationChannelsSheet(isPresented: $showLocationChannelsSheet)
+                    .onAppear { viewModel.isLocationChannelsSheetPresented = true }
+                    .onDisappear { viewModel.isLocationChannelsSheetPresented = false }
+
+            case .locationNotes:
+                Group {
+                    if let gh = notesGeohash ?? LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
+                        LocationNotesView(geohash: gh)
+                            .environmentObject(viewModel)
+                    } else {
+                        VStack(spacing: 12) {
+                            HStack {
+                                Text("content.notes.title")
+                                    .font(.bitchatSystem(size: 16, weight: .bold, design: .monospaced))
+                                Spacer()
+                                Button(action: { showLocationNotes = false }) {
+                                    Image(systemName: "xmark")
+                                        .font(.bitchatSystem(size: 13, weight: .semibold, design: .monospaced))
+                                        .foregroundColor(textColor)
+                                        .frame(width: 32, height: 32)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(String(localized: "common.close", comment: "Accessibility label for close buttons"))
+                            }
+                            .frame(height: headerHeight)
+                            .padding(.horizontal, 12)
+                            .background(backgroundColor.opacity(0.95))
+                            Text("content.notes.location_unavailable")
+                                .font(.bitchatSystem(size: 14, design: .monospaced))
+                                .foregroundColor(secondaryTextColor)
+                            Button("content.location.enable") {
+                                LocationChannelManager.shared.enableLocationChannels()
+                                LocationChannelManager.shared.refreshChannels()
+                            }
+                            .buttonStyle(.bordered)
+                            Spacer()
+                        }
+                        .background(backgroundColor)
+                        .foregroundColor(textColor)
                     }
                 }
-            )
-        ) {
-            peopleSheetView
-        }
-        .sheet(isPresented: $showAppInfo) {
-            AppInfoView()
-                .onAppear { viewModel.isAppInfoPresented = true }
-                .onDisappear { viewModel.isAppInfoPresented = false }
-        }
-        .sheet(isPresented: Binding(
-            get: { viewModel.showingFingerprintFor != nil },
-            set: { _ in viewModel.showingFingerprintFor = nil }
-        )) {
-            if let peerID = viewModel.showingFingerprintFor {
-                FingerprintView(viewModel: viewModel, peerID: peerID)
+                .onAppear {
+                    LocationChannelManager.shared.enableLocationChannels()
+                    LocationChannelManager.shared.beginLiveRefresh()
+                }
+                .onDisappear {
+                    LocationChannelManager.shared.endLiveRefresh()
+                }
+                .onChange(of: locationManager.availableChannels) { channels in
+                    if let current = channels.first(where: { $0.level == .building })?.geohash,
+                        notesGeohash != current {
+                        notesGeohash = current
+                        #if os(iOS)
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.prepare()
+                        generator.impactOccurred()
+                        #endif
+                    }
+                }
             }
         }
-#if os(iOS)
-        .sheet(isPresented: $showImagePicker) {
+        // MARK: - Image Picker for Main View
+        // Only present when NOT in a DM or people sheet (parent-child pattern)
+        #if os(iOS)
+        .sheet(isPresented: Binding(
+            get: { showImagePicker && !showSidebar && viewModel.selectedPrivateChatPeer == nil },
+            set: { newValue in
+                if !newValue {
+                    showImagePicker = false
+                }
+            }
+        )) {
             ImagePickerView(sourceType: imagePickerSourceType) { image in
                 showImagePicker = false
                 if let image = image {
@@ -221,9 +410,16 @@ struct ContentView: View {
             }
             .ignoresSafeArea()
         }
-#endif
-#if os(macOS)
-        .sheet(isPresented: $showMacImagePicker) {
+        #endif
+        #if os(macOS)
+        .sheet(isPresented: Binding(
+            get: { showMacImagePicker && !showSidebar && viewModel.selectedPrivateChatPeer == nil },
+            set: { newValue in
+                if !newValue {
+                    showMacImagePicker = false
+                }
+            }
+        )) {
             MacImagePickerView { url in
                 showMacImagePicker = false
                 if let url = url {
@@ -240,15 +436,7 @@ struct ContentView: View {
                 }
             }
         }
-#endif
-        .sheet(isPresented: Binding(
-            get: { imagePreviewURL != nil },
-            set: { presenting in if !presenting { imagePreviewURL = nil } }
-        )) {
-            if let url = imagePreviewURL {
-                ImagePreviewView(url: url)
-            }
-        }
+        #endif
         .alert("Recording Error", isPresented: $showRecordingAlert, actions: {
             Button("OK", role: .cancel) {}
         }, message: {
@@ -906,6 +1094,61 @@ struct ContentView: View {
         #if os(macOS)
         .frame(minWidth: 420, minHeight: 520)
         #endif
+        // MARK: - Image Picker for DM Context (Parent-Child Pattern)
+        // Present image picker when IN a sheet (DM or people sheet)
+        #if os(iOS)
+        .sheet(isPresented: Binding(
+            get: { showImagePicker && (showSidebar || viewModel.selectedPrivateChatPeer != nil) },
+            set: { newValue in
+                if !newValue {
+                    showImagePicker = false
+                }
+            }
+        )) {
+            ImagePickerView(sourceType: imagePickerSourceType) { image in
+                showImagePicker = false
+                if let image = image {
+                    Task {
+                        do {
+                            let processedURL = try ImageUtils.processImage(image)
+                            await MainActor.run {
+                                viewModel.sendImage(from: processedURL)
+                            }
+                        } catch {
+                            SecureLogger.error("Image processing failed: \(error)", category: .session)
+                        }
+                    }
+                }
+            }
+            .ignoresSafeArea()
+        }
+        #endif
+        #if os(macOS)
+        .sheet(isPresented: Binding(
+            get: { showMacImagePicker && (showSidebar || viewModel.selectedPrivateChatPeer != nil) },
+            set: { newValue in
+                if !newValue {
+                    showMacImagePicker = false
+                }
+            }
+        )) {
+            MacImagePickerView { url in
+                showMacImagePicker = false
+                if let url = url {
+                    Task {
+                        do {
+                            let processedURL = try ImageUtils.processImage(at: url)
+                            await MainActor.run {
+                                viewModel.sendImage(from: processedURL)
+                            }
+                        } catch {
+                            SecureLogger.error("Image processing failed: \(error)", category: .session)
+                        }
+                    }
+                }
+            }
+        }
+        #endif
     }
     
     // MARK: - People Sheet Views
@@ -1443,79 +1686,9 @@ struct ContentView: View {
                     showSidebar.toggle()
                 }
             }
-            .sheet(isPresented: $showVerifySheet) {
-                VerificationSheetView(isPresented: $showVerifySheet)
-                    .environmentObject(viewModel)
-            }
         }
         .frame(height: headerHeight)
         .padding(.horizontal, 12)
-        .sheet(isPresented: $showLocationChannelsSheet) {
-            LocationChannelsSheet(isPresented: $showLocationChannelsSheet)
-                .onAppear { viewModel.isLocationChannelsSheetPresented = true }
-                .onDisappear { viewModel.isLocationChannelsSheetPresented = false }
-        }
-        .sheet(isPresented: $showLocationNotes, onDismiss: {
-            notesGeohash = nil
-        }) {
-            Group {
-                if let gh = notesGeohash ?? LocationChannelManager.shared.availableChannels.first(where: { $0.level == .building })?.geohash {
-                    LocationNotesView(geohash: gh)
-                        .environmentObject(viewModel)
-                } else {
-                    VStack(spacing: 12) {
-                        HStack {
-                            Text("content.notes.title")
-                                .font(.bitchatSystem(size: 16, weight: .bold, design: .monospaced))
-                            Spacer()
-                            Button(action: { showLocationNotes = false }) {
-                                Image(systemName: "xmark")
-                                    .font(.bitchatSystem(size: 13, weight: .semibold, design: .monospaced))
-                                    .foregroundColor(textColor)
-                                    .frame(width: 32, height: 32)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(String(localized: "common.close", comment: "Accessibility label for close buttons"))
-                        }
-                        .frame(height: headerHeight)
-                        .padding(.horizontal, 12)
-                        .background(backgroundColor.opacity(0.95))
-                        Text("content.notes.location_unavailable")
-                            .font(.bitchatSystem(size: 14, design: .monospaced))
-                            .foregroundColor(secondaryTextColor)
-                        Button("content.location.enable") {
-                            LocationChannelManager.shared.enableLocationChannels()
-                            LocationChannelManager.shared.refreshChannels()
-                        }
-                        .buttonStyle(.bordered)
-                        Spacer()
-                    }
-                    .background(backgroundColor)
-                    .foregroundColor(textColor)
-                    // per-sheet global onChange added below
-                }
-            }
-            .onAppear {
-                // Ensure we are authorized and start live location updates (distance-filtered)
-                LocationChannelManager.shared.enableLocationChannels()
-                LocationChannelManager.shared.beginLiveRefresh()
-            }
-            .onDisappear {
-                LocationChannelManager.shared.endLiveRefresh()
-            }
-            .onChange(of: locationManager.availableChannels) { channels in
-                if let current = channels.first(where: { $0.level == .building })?.geohash,
-                    notesGeohash != current {
-                    notesGeohash = current
-                    #if os(iOS)
-                    // Light taptic when geohash changes while the sheet is open
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.prepare()
-                    generator.impactOccurred()
-                    #endif
-                }
-            }
-        }
         .onAppear {
             if case .mesh = locationManager.selectedChannel,
                locationManager.permissionState == .authorized,
