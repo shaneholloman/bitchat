@@ -34,7 +34,7 @@ struct FragmentationTests {
         ble.delegate = capture
         
         // Construct a big packet (3KB) from a remote sender (not our own ID)
-        let remoteShortID: PeerID = "1122334455667788"
+        let remoteShortID = PeerID(str: "1122334455667788")
         let original = makeLargePublicPacket(senderShortHex: remoteShortID, size: 3_000)
         
         // Use a small fragment size to ensure multiple pieces
@@ -45,15 +45,15 @@ struct FragmentationTests {
         
         // Inject fragments spaced out to avoid concurrent mutation inside BLEService
         for (i, fragment) in shuffled.enumerated() {
-            let delay = UInt64(5 * i) * 1_000_000 // nanoseconds
+            let delay = 5 * Double(i) * 0.001
             Task {
-                try await Task.sleep(nanoseconds: delay)
+                try await sleep(delay)
                 ble._test_handlePacket(fragment, fromPeerID: remoteShortID)
             }
         }
         
         // Allow async processing
-        try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+        try await sleep(0.5)
         
         #expect(capture.publicMessages.count == 1)
         #expect(capture.publicMessages.first?.content.count == 3_000)
@@ -69,7 +69,7 @@ struct FragmentationTests {
         let capture = CaptureDelegate()
         ble.delegate = capture
         
-        let remoteShortID: PeerID = "A1B2C3D4E5F60708"
+        let remoteShortID = PeerID(str: "A1B2C3D4E5F60708")
         let original = makeLargePublicPacket(senderShortHex: remoteShortID, size: 2048)
         var frags = fragmentPacket(original, fragmentSize: 300)
         
@@ -79,18 +79,74 @@ struct FragmentationTests {
         }
         
         for (i, fragment) in frags.enumerated() {
-            let delay = UInt64(5 * i) * 1_000_000 // nanoseconds
+            let delay = 5 * Double(i) * 0.001
             Task {
-                try await Task.sleep(nanoseconds: delay)
+                try await sleep(delay)
                 ble._test_handlePacket(fragment, fromPeerID: remoteShortID)
             }
         }
         
         // Allow async processing
-        try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-        
+        try await sleep(0.5)
+
         #expect(capture.publicMessages.count == 1)
         #expect(capture.publicMessages.first?.content.count == 2048)
+    }
+
+    @Test("Max-sized file transfer survives reassembly")
+    func maxSizedFileTransferSurvivesReassembly() async throws {
+        let ble = BLEService(
+            keychain: mockKeychain,
+            idBridge: idBridge,
+            identityManager: mockIdentityManager
+        )
+        let capture = CaptureDelegate()
+        ble.delegate = capture
+
+        let remoteID = PeerID(str: "CAFEBABECAFEBABE")
+        let fileContent = Data(repeating: 0x42, count: FileTransferLimits.maxPayloadBytes)
+        let filePacket = BitchatFilePacket(
+            fileName: "limit.bin",
+            fileSize: UInt64(fileContent.count),
+            mimeType: "application/octet-stream",
+            content: fileContent
+        )
+        let encoded = try #require(filePacket.encode(), "File packet encoding failed")
+
+        let packet = BitchatPacket(
+            type: MessageType.fileTransfer.rawValue,
+            senderID: Data(hexString: remoteID.id) ?? Data(),
+            recipientID: nil,
+            timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
+            payload: encoded,
+            signature: nil,
+            ttl: 7,
+            version: 2
+        )
+
+        let fragments = fragmentPacket(packet, fragmentSize: 4096, pad: false)
+        #expect(!fragments.isEmpty)
+
+        for (i, fragment) in fragments.enumerated() {
+            let delay = 5 * Double(i) * 0.001
+            Task {
+                try await sleep(delay)
+                ble._test_handlePacket(fragment, fromPeerID: remoteID)
+            }
+        }
+
+        try await sleep(1.0)
+
+        let message = try #require(capture.receivedMessages.first, "Expected file transfer message")
+        #expect(message.content.hasPrefix("[file]"))
+
+        if let fileName = message.content.split(separator: " ").last {
+            let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            let filesRoot = base.appendingPathComponent("files", isDirectory: true)
+            let incoming = filesRoot.appendingPathComponent("files/incoming", isDirectory: true)
+            let url = incoming.appendingPathComponent(String(fileName))
+            try? FileManager.default.removeItem(at: url)
+        }
     }
     
     @Test("Invalid fragment header is ignored")
@@ -103,7 +159,7 @@ struct FragmentationTests {
         let capture = CaptureDelegate()
         ble.delegate = capture
         
-        let remoteShortID: PeerID = "0011223344556677"
+        let remoteShortID = PeerID(str: "0011223344556677")
         let original = makeLargePublicPacket(senderShortHex: remoteShortID, size: 1000)
         let fragments = fragmentPacket(original, fragmentSize: 250)
         
@@ -124,16 +180,16 @@ struct FragmentationTests {
         }
         
         for (i, fragment) in corrupted.enumerated() {
-            let delay = UInt64(5 * i) * 1_000_000 // nanoseconds
+            let delay = 5 * Double(i) * 0.001
             Task {
-                try await Task.sleep(nanoseconds: delay)
+                try await sleep(delay)
                 ble._test_handlePacket(fragment, fromPeerID: remoteShortID)
             }
         }
         
         // Allow async processing
-        try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-        
+        try await sleep(0.5)
+
         // Should not deliver since one fragment is invalid and reassembly can't complete
         #expect(capture.publicMessages.isEmpty)
     }
@@ -142,7 +198,10 @@ struct FragmentationTests {
 extension FragmentationTests {
     private final class CaptureDelegate: BitchatDelegate {
         var publicMessages: [(peerID: PeerID, nickname: String, content: String)] = []
-        func didReceiveMessage(_ message: BitchatMessage) {}
+        var receivedMessages: [BitchatMessage] = []
+        func didReceiveMessage(_ message: BitchatMessage) {
+            receivedMessages.append(message)
+        }
         func didConnectToPeer(_ peerID: PeerID) {}
         func didDisconnectFromPeer(_ peerID: PeerID) {}
         func didUpdatePeerList(_ peers: [PeerID]) {}
@@ -173,8 +232,8 @@ extension FragmentationTests {
     }
 
     // Helper: fragment a packet using the same header format BLEService expects
-    private func fragmentPacket(_ packet: BitchatPacket, fragmentSize: Int, fragmentID: Data? = nil) -> [BitchatPacket] {
-        let fullData = packet.toBinaryData() ?? Data()
+    private func fragmentPacket(_ packet: BitchatPacket, fragmentSize: Int, fragmentID: Data? = nil, pad: Bool = true) -> [BitchatPacket] {
+        guard let fullData = packet.toBinaryData(padding: pad) else { return [] }
         let fid = fragmentID ?? Data((0..<8).map { _ in UInt8.random(in: 0...255) })
         let chunks: [Data] = stride(from: 0, to: fullData.count, by: fragmentSize).map { off in
             Data(fullData[off..<min(off + fragmentSize, fullData.count)])

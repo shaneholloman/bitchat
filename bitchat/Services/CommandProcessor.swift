@@ -65,14 +65,11 @@ final class CommandProcessor {
         case "/unfav":
             if inGeoPublic || inGeoDM { return .error(message: "favorites are only for mesh peers in #mesh") }
             return handleFavorite(args, add: false)
-        //
-        case "/help", "/h":
-            return .error(message: "unknown command: \(cmd)")
         default:
             return .error(message: "unknown command: \(cmd)")
         }
     }
-    
+
     // MARK: - Command Handlers
     
     private func handleMessage(_ args: String) -> CommandResult {
@@ -148,9 +145,9 @@ final class CommandProcessor {
         
         if chatViewModel?.selectedPrivateChatPeer != nil {
             // In private chat
-            if let peerNickname = meshService?.peerNickname(peerID: PeerID(str: targetPeerID)) {
+            if let peerNickname = meshService?.peerNickname(peerID: targetPeerID) {
                 let personalMessage = "* \(emoji) \(myNickname) \(action) you\(suffix) *"
-                meshService?.sendPrivateMessage(personalMessage, to: PeerID(str: targetPeerID),
+                meshService?.sendPrivateMessage(personalMessage, to: targetPeerID,
                                                recipientNickname: peerNickname,
                                                messageID: UUID().uuidString)
                 // Also add a local system message so the sender sees a natural-language confirmation
@@ -214,7 +211,7 @@ final class CommandProcessor {
         let nickname = targetName.hasPrefix("@") ? String(targetName.dropFirst()) : targetName
         
         if let peerID = chatViewModel?.getPeerIDForNickname(nickname),
-           let fingerprint = meshService?.getFingerprint(for: PeerID(str: peerID)) {
+           let fingerprint = meshService?.getFingerprint(for: peerID) {
             if identityManager.isBlocked(fingerprint: fingerprint) {
                 return .success(message: "\(nickname) is already blocked")
             }
@@ -258,7 +255,7 @@ final class CommandProcessor {
         let nickname = targetName.hasPrefix("@") ? String(targetName.dropFirst()) : targetName
         
         if let peerID = chatViewModel?.getPeerIDForNickname(nickname),
-           let fingerprint = meshService?.getFingerprint(for: PeerID(str: peerID)) {
+           let fingerprint = meshService?.getFingerprint(for: peerID) {
             if !identityManager.isBlocked(fingerprint: fingerprint) {
                 return .success(message: "\(nickname) is not blocked")
             }
@@ -285,7 +282,7 @@ final class CommandProcessor {
         let nickname = targetName.hasPrefix("@") ? String(targetName.dropFirst()) : targetName
         
         guard let peerID = chatViewModel?.getPeerIDForNickname(nickname),
-              let noisePublicKey = Data(hexString: peerID) else {
+              let noisePublicKey = Data(hexString: peerID.id) else {
             return .error(message: "can't find peer: \(nickname)")
         }
         
@@ -311,19 +308,4 @@ final class CommandProcessor {
         }
     }
     
-    private func handleHelp() -> CommandResult {
-        let helpText = """
-        commands:
-        /msg @name - start private chat
-        /who - list who's online
-        /clear - clear messages
-        /hug @name - send a hug
-        /slap @name - slap with a trout
-        /fav @name - add to favorites
-        /unfav @name - remove from favorites
-        /block @name - block
-        /unblock @name - unblock
-        """
-        return .success(message: helpText)
-    }
 }

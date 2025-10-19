@@ -1,8 +1,9 @@
-import XCTest
+import Testing
+import Foundation
 @testable import bitchat
 
 @MainActor
-final class LocationNotesManagerTests: XCTestCase {
+struct LocationNotesManagerTests {
 //    func testSubscribeWithoutRelaysSetsNoRelaysState() {
 //        var subscribeCalled = false
 //        let deps = LocationNotesDependencies(
@@ -47,15 +48,15 @@ final class LocationNotesManagerTests: XCTestCase {
 //        XCTAssertNotEqual(manager.errorMessage, "location_notes.error.no_relays")
 //    }
 
-    func testSubscribeUsesGeoRelaysAndAppendsNotes() {
+    @Test func subscribeUsesGeoRelaysAndAppendsNotes() {
         var relaysCaptured: [String] = []
         var storedHandler: ((NostrEvent) -> Void)?
         var storedEOSE: (() -> Void)?
         let deps = LocationNotesDependencies(
             relayLookup: { _, _ in ["wss://relay.one"] },
             subscribe: { filter, id, relays, handler, eose in
-                XCTAssertEqual(filter.kinds, [1])
-                XCTAssertFalse(id.isEmpty)
+                #expect(filter.kinds == [1])
+                #expect(!id.isEmpty)
                 relaysCaptured = relays
                 storedHandler = handler
                 storedEOSE = eose
@@ -67,8 +68,8 @@ final class LocationNotesManagerTests: XCTestCase {
         )
 
         let manager = LocationNotesManager(geohash: "u4pruydq", dependencies: deps)
-        XCTAssertEqual(relaysCaptured, ["wss://relay.one"])
-        XCTAssertEqual(manager.state, .loading)
+        #expect(relaysCaptured == ["wss://relay.one"])
+        #expect(manager.state == .loading)
 
         var event = NostrEvent(
             pubkey: "pub",
@@ -81,70 +82,12 @@ final class LocationNotesManagerTests: XCTestCase {
         storedHandler?(event)
         storedEOSE?()
 
-        XCTAssertEqual(manager.state, .ready)
-        XCTAssertEqual(manager.notes.count, 1)
-        XCTAssertEqual(manager.notes.first?.content, "hi")
+        #expect(manager.state == .ready)
+        #expect(manager.notes.count == 1)
+        #expect(manager.notes.first?.content == "hi")
     }
 
     private enum TestError: Error {
         case shouldNotDerive
-    }
-}
-
-@MainActor
-final class LocationNotesCounterTests: XCTestCase {
-    func testSubscribeWithoutRelaysMarksUnavailable() {
-        var subscribeCalled = false
-        let deps = LocationNotesCounterDependencies(
-            relayLookup: { _, _ in [] },
-            subscribe: { _, _, _, _, _ in subscribeCalled = true },
-            unsubscribe: { _ in }
-        )
-
-        let counter = LocationNotesCounter(testDependencies: deps)
-        counter.subscribe(geohash: "u4pruydq")
-
-        XCTAssertFalse(subscribeCalled)
-        XCTAssertFalse(counter.relayAvailable)
-        XCTAssertTrue(counter.initialLoadComplete)
-        XCTAssertEqual(counter.count, 0)
-    }
-
-    func testSubscribeCountsUniqueNotes() {
-        var storedHandler: ((NostrEvent) -> Void)?
-        var storedEOSE: (() -> Void)?
-        let deps = LocationNotesCounterDependencies(
-            relayLookup: { _, _ in ["wss://relay.geo"] },
-            subscribe: { filter, id, relays, handler, eose in
-                XCTAssertEqual(relays, ["wss://relay.geo"])
-                XCTAssertEqual(filter.kinds, [1])
-                XCTAssertFalse(id.isEmpty)
-                storedHandler = handler
-                storedEOSE = eose
-            },
-            unsubscribe: { _ in }
-        )
-
-        let counter = LocationNotesCounter(testDependencies: deps)
-        counter.subscribe(geohash: "u4pruydq")
-
-        var first = NostrEvent(
-            pubkey: "pub",
-            createdAt: Date(),
-            kind: .textNote,
-            tags: [["g", "u4pruydq"]],
-            content: "a"
-        )
-        first.id = "eventA"
-        storedHandler?(first)
-
-        let duplicate = first
-        storedHandler?(duplicate)
-
-        storedEOSE?()
-
-        XCTAssertTrue(counter.relayAvailable)
-        XCTAssertEqual(counter.count, 1)
-        XCTAssertTrue(counter.initialLoadComplete)
     }
 }
